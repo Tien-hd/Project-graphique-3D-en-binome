@@ -1,0 +1,8 @@
+CMakeLists.txt
+CMakePresets.json
+Makefile
+build/
+vscode.code-workspace
+imgui.ini
+project.exe
+project.pdb
