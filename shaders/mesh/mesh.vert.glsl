@@ -27,15 +27,19 @@ uniform mat4 projection; // Projection (perspective or orthogonal) matrix of the
 uniform int use_instancing;
 uniform int instancing_mode; // 0: regular instanced mesh, 1: shrub billboard, 2: foam billboard
 
-vec3 rotate_y_then_z(vec3 p, float yaw, float sway)
-{
-	float cy = cos(sway);
-	float sy = sin(sway);
-	vec3 q = vec3(cy * p.x + sy * p.z, p.y, -sy * p.x + cy * p.z);
+vec3 rotate_y_then_z(vec3 p, float yaw, float sway, float pitch)
+{	
+    float cx = cos(pitch);
+    float sx = sin(pitch);
+    vec3 r = vec3(p.x, cx * p.y - sx * p.z, sx * p.y + cx * p.z);
+    
+    float cy = cos(sway);
+    float sy = sin(sway);
+    vec3 q = vec3(cy * r.x + sy * r.z, r.y, -sy * r.x + cy * r.z);
 
-	float cz = cos(yaw);
-	float sz = sin(yaw);
-	return vec3(cz * q.x - sz * q.y, sz * q.x + cz * q.y, q.z);
+    float cz = cos(yaw);
+    float sz = sin(yaw);
+    return vec3(cz * q.x - sz * q.y, sz * q.x + cz * q.y, q.z);
 }
 
 mat3 camera_world_orientation()
@@ -76,8 +80,8 @@ void main()
 			}
 		}
 		else {
-			vec3 rotated_position = rotate_y_then_z(vertex_position, instance_rotation.x, instance_rotation.y);
-			vec3 rotated_normal = rotate_y_then_z(vertex_normal, instance_rotation.x, instance_rotation.y);
+			vec3 rotated_position = rotate_y_then_z(vertex_position, instance_rotation.x, instance_rotation.y, instance_rotation.z);
+			vec3 rotated_normal = rotate_y_then_z(vertex_normal, instance_rotation.x, instance_rotation.y, instance_rotation.z);
 			position = model * vec4(instance_position_scale.xyz + instance_position_scale.w * rotated_position, 1.0);
 			normal = modelNormal * vec4(rotated_normal, 0.0);
 		}

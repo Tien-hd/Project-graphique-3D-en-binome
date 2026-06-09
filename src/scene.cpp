@@ -478,7 +478,7 @@ void scene_structure::initialize_palm_instance_buffers()
 	for (int k = 0; k < static_cast<int>(palms.size()); ++k) {
 		palm_instance const& p = palms[k];
 		palm_instance_position_scale[k] = {p.root.x, p.root.y, p.root.z, 2.0f * p.scale};
-		palm_instance_rotation[k] = {p.yaw, 0.08f * gui.wind * std::sin(p.sway_phase), 0.0f, 0.0f};
+		palm_instance_rotation[k] = {p.yaw, 0.08f * gui.wind * std::sin(p.sway_phase), 1.5708f, 0.0f};
 	}
 
 	palm_tree.initialize_supplementary_data_on_gpu(palm_instance_position_scale, 4, 1);
@@ -494,7 +494,7 @@ void scene_structure::update_palm_instance_rotation_buffer(float t)
 	for (int k = 0; k < static_cast<int>(palms.size()); ++k) {
 		palm_instance const& p = palms[k];
 		float const sway = 0.08f * gui.wind * std::sin(1.15f * t + p.sway_phase);
-		palm_instance_rotation[k] = {p.yaw, sway, 0.0f, 0.0f};
+		palm_instance_rotation[k] = {p.yaw, sway, 1.5708f, 0.0f};
 	}
 	palm_tree.update_supplementary_data_on_gpu(palm_instance_rotation, 5, static_cast<int>(palms.size()));
 }
@@ -913,7 +913,6 @@ void scene_structure::draw_vegetation(float t)
 			float const sway = 0.08f * gui.wind * std::sin(1.15f * t + p.sway_phase);
 			rotation_transform const R = rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, p.yaw) *
 			                             rotation_transform::from_axis_angle({0.0f, 1.0f, 0.0f}, sway);
-
 			palm_fallback_trunk.model.translation = p.root;
 			palm_fallback_trunk.model.rotation = R;
 			palm_fallback_trunk.model.scaling = 1.8f * p.scale;
