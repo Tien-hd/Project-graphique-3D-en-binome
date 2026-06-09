@@ -154,7 +154,7 @@ struct scene_structure : cgp::scene_inputs_generic {
 	void update_palm_instance_rotation_buffer(float t);
 	void initialize_shrub_instance_buffers();
 	void initialize_foam_instance_buffers();
-	void update_foam_instance_buffers(float t);
+	void update_foam_instance_buffers(float t, cgp::vec3 const& camera_pos);
 	void update_day_night_cycle(float t);
 
 	void draw_structures(float t);

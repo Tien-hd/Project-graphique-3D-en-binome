@@ -10,6 +10,24 @@ using namespace cgp;
 
 namespace
 {
+struct transparent_draw_call {
+	int pass = 0;
+	float distance2 = 0.0f;
+};
+
+struct transparent_instance {
+	int index = 0;
+	float distance2 = 0.0f;
+	vec3 position;
+	float alpha = 1.0f;
+};
+
+float distance_squared(vec3 const& a, vec3 const& b)
+{
+	vec3 const d = a - b;
+	return d.x * d.x + d.y * d.y + d.z * d.z;
+}
+
 float saturate(float x)
 {
 	return std::clamp(x, 0.0f, 1.0f);
@@ -598,14 +616,14 @@ void scene_structure::initialize_foam_instance_buffers()
 
 	foam_instance_position_scale.resize(static_cast<int>(foams.size()));
 	foam_instance_rotation_alpha.resize(static_cast<int>(foams.size()));
-	update_foam_instance_buffers(0.0f);
+	update_foam_instance_buffers(0.0f, camera_control.camera_model.position());
 
 	foam_billboard.initialize_supplementary_data_on_gpu(foam_instance_position_scale, 4, 1);
 	foam_billboard.initialize_supplementary_data_on_gpu(foam_instance_rotation_alpha, 5, 1);
 	foam_instance_buffers_initialized = true;
 }
 
-void scene_structure::update_foam_instance_buffers(float t)
+void scene_structure::update_foam_instance_buffers(float t, vec3 const& camera_pos)
 {
 	if (foams.empty())
 		return;
@@ -615,6 +633,8 @@ void scene_structure::update_foam_instance_buffers(float t)
 	if (foam_instance_rotation_alpha.size() != static_cast<int>(foams.size()))
 		foam_instance_rotation_alpha.resize(static_cast<int>(foams.size()));
 
+	std::vector<transparent_instance> sorted_foams;
+	sorted_foams.reserve(foams.size());
 	for (int k = 0; k < static_cast<int>(foams.size()); ++k) {
 		foam_instance const& f = foams[k];
 		float const pulse = 0.5f + 0.5f * std::sin(2.6f * t + f.phase);
@@ -624,8 +644,17 @@ void scene_structure::update_foam_instance_buffers(float t)
 		pos.y += 0.28f * std::sin(angle) * std::sin(1.3f * t + f.phase);
 		pos.z = water_height(pos.x, pos.y, t) + 0.03f;
 
-		foam_instance_position_scale[k] = {pos.x, pos.y, pos.z, f.scale};
-		foam_instance_rotation_alpha[k] = {0.0f, 0.18f + 0.32f * pulse, 0.0f, 0.0f};
+		sorted_foams.push_back({k, distance_squared(camera_pos, pos), pos, 0.18f + 0.32f * pulse});
+	}
+
+	std::sort(sorted_foams.begin(), sorted_foams.end(),
+	          [](transparent_instance const& a, transparent_instance const& b) { return a.distance2 > b.distance2; });
+
+	for (int k = 0; k < static_cast<int>(sorted_foams.size()); ++k) {
+		transparent_instance const& instance = sorted_foams[k];
+		foam_instance const& f = foams[instance.index];
+		foam_instance_position_scale[k] = {instance.position.x, instance.position.y, instance.position.z, f.scale};
+		foam_instance_rotation_alpha[k] = {0.0f, instance.alpha, 0.0f, 0.0f};
 	}
 }
 
@@ -695,6 +724,7 @@ void scene_structure::draw_lighthouse_beam_effect(float t, vec3 const& lighthous
 	// Lighthouse bulb (optional emissive-like sphere)
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glDepthMask(GL_FALSE);
 	lighthouse_bulb.material.alpha = 0.30f + 0.70f * visibility;
 	lighthouse_bulb.material.color = mix_color(vec3{0.95f, 0.90f, 0.75f}, vec3{1.0f, 0.62f, 0.38f}, 0.55f * night_factor);
 	lighthouse_bulb.model.translation = beam_origin;
@@ -702,6 +732,7 @@ void scene_structure::draw_lighthouse_beam_effect(float t, vec3 const& lighthous
 	lighthouse_bulb.model.scaling = 0.16f;
 	lighthouse_bulb.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
 	draw(lighthouse_bulb, environment);
+	glDepthMask(GL_TRUE);
 	glDisable(GL_BLEND);
 
 	// Volumetric beam (translucent mesh)
@@ -880,12 +911,14 @@ void scene_structure::draw_foam(float t)
 	if (!foam_instance_buffers_initialized)
 		return;
 
-	update_foam_instance_buffers(t);
+	vec3 const camera_pos = camera_control.camera_model.position();
+	update_foam_instance_buffers(t, camera_pos);
 	foam_billboard.update_supplementary_data_on_gpu(foam_instance_position_scale, 4, static_cast<int>(foams.size()));
 	foam_billboard.update_supplementary_data_on_gpu(foam_instance_rotation_alpha, 5, static_cast<int>(foams.size()));
 
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glDepthMask(GL_FALSE);
 
 	foam_billboard.material.alpha = 1.0f;
 	foam_billboard.model.translation = {0.0f, 0.0f, 0.0f};
@@ -897,6 +930,7 @@ void scene_structure::draw_foam(float t)
 	foam_uniforms.uniform_int["instancing_mode"] = 2;
 	draw(foam_billboard, environment, static_cast<int>(foams.size()), true, foam_uniforms);
 
+	glDepthMask(GL_TRUE);
 	glDisable(GL_BLEND);
 }
 
@@ -905,25 +939,39 @@ void scene_structure::draw_glows(float t)
 	if (!gui.display_vegetation)
 		return;
 
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-	for (glow_instance const& g : glows) {
+	vec3 const camera_pos = camera_control.camera_model.position();
+	std::vector<transparent_instance> sorted_glows;
+	sorted_glows.reserve(glows.size());
+	for (int k = 0; k < static_cast<int>(glows.size()); ++k) {
+		glow_instance const& g = glows[k];
 		vec3 p = g.center;
 		p.x += 0.16f * std::sin(0.9f * t + g.phase);
 		p.y += 0.16f * std::cos(1.1f * t + g.phase);
 		p.z += g.rise * (0.5f + 0.5f * std::sin(1.6f * t + g.phase));
 
 		float const pulse = 0.45f + 0.55f * std::sin(2.3f * t + g.phase);
-		glow_orb.material.alpha = 0.08f + 0.28f * pulse;
+		sorted_glows.push_back({k, distance_squared(camera_pos, p), p, 0.08f + 0.28f * pulse});
+	}
 
-		glow_orb.model.translation = p;
+	std::sort(sorted_glows.begin(), sorted_glows.end(),
+	          [](transparent_instance const& a, transparent_instance const& b) { return a.distance2 > b.distance2; });
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glDepthMask(GL_FALSE);
+
+	for (transparent_instance const& instance : sorted_glows) {
+		glow_instance const& g = glows[instance.index];
+		glow_orb.material.alpha = instance.alpha;
+
+		glow_orb.model.translation = instance.position;
 		glow_orb.model.rotation = rotation_transform();
 		glow_orb.model.scaling = g.radius;
 		glow_orb.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
 		draw(glow_orb, environment);
 	}
 
+	glDepthMask(GL_TRUE);
 	glDisable(GL_BLEND);
 }
 
@@ -1013,21 +1061,57 @@ void scene_structure::display_frame()
 	}
 	draw(island, environment);
 
-	if (gui.display_water) {
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		draw(water, environment, 1, true, water_uniforms);
-		glDisable(GL_BLEND);
-	}
-
 	draw_structures(t);
 	draw_vegetation(t);
-	draw_glows(t);
 	draw_fauna(t);
-	draw_foam(t);
 
-	// Lighthouse volumetric beam: draw transparent effect after opaque geometry
-	draw_lighthouse_beam_effect(t, lighthouse_world_position());
+	vec3 const camera_pos = camera_control.camera_model.position();
+	std::vector<transparent_draw_call> transparent_passes;
+	if (gui.display_water)
+		transparent_passes.push_back({0, 1.0e12f});
+	if (gui.display_vegetation && !glows.empty()) {
+		float glow_distance2 = 0.0f;
+		for (glow_instance const& g : glows)
+			glow_distance2 = std::max(glow_distance2, distance_squared(camera_pos, g.center));
+		transparent_passes.push_back({1, glow_distance2});
+	}
+	if (gui.display_foam && !foams.empty()) {
+		float foam_distance2 = 0.0f;
+		for (foam_instance const& f : foams)
+			foam_distance2 = std::max(foam_distance2, distance_squared(camera_pos, f.anchor));
+		transparent_passes.push_back({2, foam_distance2});
+	}
+	if (gui.display_lighthouse_beam) {
+		vec3 const lighthouse_pos = lighthouse_world_position();
+		float const lighthouse_angle = t * lighthouse_rotation_speed;
+		vec3 const beam_midpoint = lighthouse_pos + vec3{0.0f, 0.0f, 4.85f} +
+		                           0.5f * lighthouse_beam_length * normalize(vec3{std::cos(lighthouse_angle), std::sin(lighthouse_angle), -0.08f});
+		transparent_passes.push_back({3, distance_squared(camera_pos, beam_midpoint)});
+	}
+
+	std::sort(transparent_passes.begin(), transparent_passes.end(),
+	          [](transparent_draw_call const& a, transparent_draw_call const& b) { return a.distance2 > b.distance2; });
+
+	beam_visibility_debug = 0.0f;
+	for (transparent_draw_call const& pass : transparent_passes) {
+		if (pass.pass == 0) {
+			glEnable(GL_BLEND);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			glDepthMask(GL_FALSE);
+			draw(water, environment, 1, true, water_uniforms);
+			glDepthMask(GL_TRUE);
+			glDisable(GL_BLEND);
+		}
+		else if (pass.pass == 1) {
+			draw_glows(t);
+		}
+		else if (pass.pass == 2) {
+			draw_foam(t);
+		}
+		else {
+			draw_lighthouse_beam_effect(t, lighthouse_world_position());
+		}
+	}
 
 	if (gui.display_wireframe) {
 		draw_wireframe(island, environment, {0.2f, 0.2f, 0.2f});
