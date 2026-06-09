@@ -393,6 +393,19 @@ void scene_structure::initialize_vegetation()
 {
 	try {
 		mesh palm = mesh_load_file_obj(project::path + "assets/palm_tree/palm_tree.obj");
+		//Stand all the trees upright from the initial
+		for (vec3& p : palm.position) {
+			float y = p.y;
+			float z = p.z;
+			p.y = -z;
+			p.z = -y;
+		}
+		for (vec3& n : palm.normal) {
+			float y = n.y;
+			float z = n.z;
+			n.y = -z;
+			n.z = -y;
+		}
 		palm.centered();
 		palm.normalize_size_to_position();
 		palm.fill_empty_field();
@@ -406,15 +419,15 @@ void scene_structure::initialize_vegetation()
 		has_palm_model = false;
 	}
 
-	palm_fallback_trunk.initialize_data_on_gpu(mesh_primitive_cylinder(0.12f, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 16, 16, true));
-	palm_fallback_trunk.material.texture_settings.active = false;
-	palm_fallback_trunk.material.color = {0.56f, 0.39f, 0.22f};
-	palm_fallback_trunk.material.phong = {0.45f, 0.52f, 0.08f, 10.0f};
+	// palm_fallback_trunk.initialize_data_on_gpu(mesh_primitive_cylinder(0.12f, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 16, 16, true));
+	// palm_fallback_trunk.material.texture_settings.active = false;
+	// palm_fallback_trunk.material.color = {0.56f, 0.39f, 0.22f};
+	// palm_fallback_trunk.material.phong = {0.45f, 0.52f, 0.08f, 10.0f};
 
-	palm_fallback_leaf.initialize_data_on_gpu(mesh_primitive_cone(0.16f, 0.9f, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, true, 14, 7));
-	palm_fallback_leaf.material.texture_settings.active = false;
-	palm_fallback_leaf.material.color = {0.16f, 0.56f, 0.21f};
-	palm_fallback_leaf.material.phong = {0.45f, 0.56f, 0.08f, 8.0f};
+	// palm_fallback_leaf.initialize_data_on_gpu(mesh_primitive_cone(0.16f, 0.9f, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, true, 14, 7));
+	// palm_fallback_leaf.material.texture_settings.active = false;
+	// palm_fallback_leaf.material.color = {0.16f, 0.56f, 0.21f};
+	// palm_fallback_leaf.material.phong = {0.45f, 0.56f, 0.08f, 8.0f};
 
 	mesh shrub_billboard_mesh = mesh_primitive_quadrangle({-0.18f, 0.0f, 0.0f}, {0.18f, 0.0f, 0.0f}, {0.15f, 0.0f, 0.52f}, {-0.15f, 0.0f, 0.52f});
 	mesh shrub_back = shrub_billboard_mesh;
@@ -427,7 +440,7 @@ void scene_structure::initialize_vegetation()
 	shrub_billboard.material.color = {0.22f, 0.57f, 0.24f};
 	shrub_billboard.material.phong = {0.40f, 0.45f, 0.04f, 6.0f};
 
-	palms.clear();
+	// palms.clear();
 	for (int trials = 0; trials < 10000 && palms.size() < 240; ++trials) {
 		float const x = rand_uniform(-23.0f, 23.0f);
 		float const y = rand_uniform(-23.0f, 23.0f);
@@ -477,8 +490,8 @@ void scene_structure::initialize_palm_instance_buffers()
 	palm_instance_rotation.resize(static_cast<int>(palms.size()));
 	for (int k = 0; k < static_cast<int>(palms.size()); ++k) {
 		palm_instance const& p = palms[k];
-		palm_instance_position_scale[k] = {p.root.x, p.root.y, p.root.z, 2.0f * p.scale};
-		palm_instance_rotation[k] = {p.yaw, 0.08f * gui.wind * std::sin(p.sway_phase), 1.5708f, 0.0f};
+		palm_instance_position_scale[k] = {p.root.x, p.root.y, p.root.z + 0.6f, -2.0f * p.scale};
+		palm_instance_rotation[k] = {p.yaw, 0.08f * gui.wind * std::sin(p.sway_phase), 0.0f, 0.6f};
 	}
 
 	palm_tree.initialize_supplementary_data_on_gpu(palm_instance_position_scale, 4, 1);
@@ -494,7 +507,7 @@ void scene_structure::update_palm_instance_rotation_buffer(float t)
 	for (int k = 0; k < static_cast<int>(palms.size()); ++k) {
 		palm_instance const& p = palms[k];
 		float const sway = 0.08f * gui.wind * std::sin(1.15f * t + p.sway_phase);
-		palm_instance_rotation[k] = {p.yaw, sway, 1.5708f, 0.0f};
+		palm_instance_rotation[k] = {p.yaw, sway, 0.0f, 0.6f};
 	}
 	palm_tree.update_supplementary_data_on_gpu(palm_instance_rotation, 5, static_cast<int>(palms.size()));
 }
@@ -905,7 +918,6 @@ void scene_structure::draw_vegetation(float t)
 		palm_tree.model.rotation = rotation_transform();
 		palm_tree.model.scaling = 1.0f;
 		palm_tree.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
-
 		draw(palm_tree, environment, static_cast<int>(palms.size()));
 	}
 	else {

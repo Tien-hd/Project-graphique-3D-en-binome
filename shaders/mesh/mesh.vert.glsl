@@ -8,7 +8,7 @@ layout (location = 1) in vec3 vertex_normal;   // vertex normal in local space  
 layout (location = 2) in vec3 vertex_color;    // vertex color      (r,g,b)
 layout (location = 3) in vec2 vertex_uv;       // vertex uv-texture (u,v)
 layout (location = 4) in vec4 instance_position_scale; // xyz: world position, w: uniform scale
-layout (location = 5) in vec4 instance_rotation;       // x: yaw around z, y: sway around y, or y: alpha for foam
+layout (location = 5) in vec4 instance_rotation;       // x: yaw around z, y: sway around y, or y: alpha for foam, z: rote around x, w: pivot_offset for rotate
 
 // Output variables sent to the fragment shader
 out struct fragment_data
@@ -26,6 +26,7 @@ uniform mat4 view;  // View matrix (rigid transform) of the camera
 uniform mat4 projection; // Projection (perspective or orthogonal) matrix of the camera
 uniform int use_instancing;
 uniform int instancing_mode; // 0: regular instanced mesh, 1: shrub billboard, 2: foam billboard
+
 
 vec3 rotate_y_then_z(vec3 p, float yaw, float sway, float pitch)
 {	
@@ -80,12 +81,19 @@ void main()
 			}
 		}
 		else {
-			vec3 rotated_position = rotate_y_then_z(vertex_position, instance_rotation.x, instance_rotation.y, instance_rotation.z);
+			// Get pivot_offset from instance_rotation.w
+			float pivot_z = instance_rotation.w;  
+			vec3 pivot = vec3(0.0, 0.0, pivot_z);
+			vec3 to_pivot = vertex_position - pivot;
+			vec3 rotated_position = rotate_y_then_z(to_pivot, instance_rotation.x, instance_rotation.y, instance_rotation.z);
+			vec3 final_position = rotated_position + pivot;
+			
 			vec3 rotated_normal = rotate_y_then_z(vertex_normal, instance_rotation.x, instance_rotation.y, instance_rotation.z);
-			position = model * vec4(instance_position_scale.xyz + instance_position_scale.w * rotated_position, 1.0);
+			
+			position = model * vec4(instance_position_scale.xyz + instance_position_scale.w * final_position, 1.0);
 			normal = modelNormal * vec4(rotated_normal, 0.0);
 		}
-	}
+			}
 	else {
 		position = model * vec4(vertex_position, 1.0);
 
