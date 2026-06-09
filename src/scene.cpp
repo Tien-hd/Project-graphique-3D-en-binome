@@ -277,7 +277,7 @@ void scene_structure::initialize_water()
 	water_cpu = mesh_primitive_grid({-L, -L, 0.0f}, {L, -L, 0.0f}, {L, L, 0.0f}, {-L, L, 0.0f}, 220, 220);
 
 	for (vec3& p : water_cpu.position)
-		p.z = water_height(p.x, p.y, 0.0f);
+		p.z = sea_level;
 	water_cpu.normal_update();
 	water_cpu.fill_empty_field();
 
@@ -293,7 +293,9 @@ void scene_structure::initialize_water()
 		water_cpu.color[k] = mix_color(water_near, water_far, fog_t);
 	}
 
-	water.initialize_data_on_gpu(water_cpu);
+	water_shader.load(project::path + "shaders/water/water.vert.glsl",
+	                  project::path + "shaders/mesh/mesh.frag.glsl");
+	water.initialize_data_on_gpu(water_cpu, water_shader);
 	water.texture.load_and_initialize_texture_2d_on_gpu(project::path + "assets/sea.png");
 	water.material.texture_settings.active = false;
 	water.material.color = {1.0f, 1.0f, 1.0f};
@@ -568,15 +570,6 @@ void scene_structure::update_day_night_cycle(float t)
 	skybox.alpha_color_blending = 0.08f + 0.62f * night_factor + 0.20f * dusk_factor;
 	skybox.alpha_color_blending = saturate(skybox.alpha_color_blending);
 	skybox.color_blending = mix_color(mix_color(sky_day, sky_dusk, dusk_factor), sky_night, night_factor);
-}
-
-void scene_structure::update_water_mesh(float t)
-{
-	for (vec3& p : water_cpu.position)
-		p.z = water_height(p.x, p.y, t);
-	water_cpu.normal_update();
-	water.vbo_position.update(water_cpu.position);
-	water.vbo_normal.update(water_cpu.normal);
 }
 
 void scene_structure::draw_lighthouse_beam_effect(float t, vec3 const& lighthouse_pos)
@@ -908,7 +901,8 @@ void scene_structure::display_frame()
 	float const t = gui.animate_scene ? timer.t : 0.0f;
 	update_day_night_cycle(t);
 
-	update_water_mesh(t);
+	uniform_generic_structure water_uniforms;
+	water_uniforms.uniform_float["time"] = t;
 
 	if (gui.display_skybox) {
 		glDepthMask(GL_FALSE);
@@ -923,7 +917,7 @@ void scene_structure::display_frame()
 	if (gui.display_water) {
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		draw(water, environment);
+		draw(water, environment, 1, true, water_uniforms);
 		glDisable(GL_BLEND);
 	}
 
@@ -938,7 +932,7 @@ void scene_structure::display_frame()
 
 	if (gui.display_wireframe) {
 		draw_wireframe(island, environment, {0.2f, 0.2f, 0.2f});
-		draw_wireframe(water, environment, {0.1f, 0.3f, 0.6f});
+		draw_wireframe(water, environment, {0.1f, 0.3f, 0.6f}, 1, true, water_uniforms);
 	}
 }
 

@@ -98,6 +98,7 @@ struct scene_structure : cgp::scene_inputs_generic {
 	mesh_drawable island;
 	mesh_drawable water;
 	mesh_drawable beach_strip;
+	cgp::opengl_shader_structure water_shader;
 
 	mesh_drawable lighthouse_tower;
 	mesh_drawable lighthouse_roof;
@@ -142,7 +143,6 @@ struct scene_structure : cgp::scene_inputs_generic {
 	void initialize_particles();
 	void update_day_night_cycle(float t);
 
-	void update_water_mesh(float t);
 	void draw_structures(float t);
 	void draw_vegetation(float t);
 	void draw_fauna(float t);
