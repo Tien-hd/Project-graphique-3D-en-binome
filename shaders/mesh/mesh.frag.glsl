@@ -18,6 +18,7 @@ in struct fragment_data
     vec3 normal;   // normal in the world space
     vec3 color;    // current color on the fragment
     vec2 uv;       // current uv-texture on the fragment
+    float alpha;   // per-instance alpha multiplier
 
 } fragment;
 
@@ -143,5 +144,5 @@ void main()
 	}
 	
 	// Output color, with the alpha component
-	FragColor = vec4(color_shading, material.alpha * color_image_texture.a);
+	FragColor = vec4(color_shading, material.alpha * color_image_texture.a * fragment.alpha);
 }

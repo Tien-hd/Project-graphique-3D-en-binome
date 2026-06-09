@@ -115,6 +115,9 @@ struct scene_structure : cgp::scene_inputs_generic {
 	mesh_drawable palm_fallback_trunk;
 	mesh_drawable palm_fallback_leaf;
 	bool has_palm_model = false;
+	bool palm_instance_buffers_initialized = false;
+	bool shrub_instance_buffers_initialized = false;
+	bool foam_instance_buffers_initialized = false;
 
 	mesh_drawable shrub_billboard;
 	mesh_drawable foam_billboard;
@@ -126,9 +129,15 @@ struct scene_structure : cgp::scene_inputs_generic {
 	mesh_drawable sun_disc;
 
 	std::vector<palm_instance> palms;
+	cgp::numarray<cgp::vec4> palm_instance_position_scale;
+	cgp::numarray<cgp::vec4> palm_instance_rotation;
 	std::vector<shrub_instance> shrubs;
+	cgp::numarray<cgp::vec4> shrub_instance_position_scale;
+	cgp::numarray<cgp::vec4> shrub_instance_rotation;
 	std::vector<bird_instance> birds;
 	std::vector<foam_instance> foams;
+	cgp::numarray<cgp::vec4> foam_instance_position_scale;
+	cgp::numarray<cgp::vec4> foam_instance_rotation_alpha;
 	std::vector<glow_instance> glows;
 
 	float terrain_height(float x, float y) const;
@@ -141,6 +150,11 @@ struct scene_structure : cgp::scene_inputs_generic {
 	void initialize_vegetation();
 	void initialize_fauna();
 	void initialize_particles();
+	void initialize_palm_instance_buffers();
+	void update_palm_instance_rotation_buffer(float t);
+	void initialize_shrub_instance_buffers();
+	void initialize_foam_instance_buffers();
+	void update_foam_instance_buffers(float t);
 	void update_day_night_cycle(float t);
 
 	void draw_structures(float t);

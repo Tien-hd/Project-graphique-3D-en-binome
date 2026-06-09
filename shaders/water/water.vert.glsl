@@ -11,6 +11,7 @@ out struct fragment_data
     vec3 normal;
     vec3 color;
     vec2 uv;
+    float alpha;
 } fragment;
 
 uniform mat4 model;
@@ -174,6 +175,7 @@ void main()
     fragment.normal = normal.xyz;
     fragment.color = vertex_color;
     fragment.uv = vertex_uv;
+    fragment.alpha = 1.0;
 
     gl_Position = projection * view * position;
 }

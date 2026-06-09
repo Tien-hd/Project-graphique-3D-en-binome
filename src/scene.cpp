@@ -398,12 +398,17 @@ void scene_structure::initialize_vegetation()
 	palm_fallback_leaf.material.color = {0.16f, 0.56f, 0.21f};
 	palm_fallback_leaf.material.phong = {0.45f, 0.56f, 0.08f, 8.0f};
 
-	mesh shrub_quad = mesh_primitive_quadrangle({-0.18f, 0.0f, 0.0f}, {0.18f, 0.0f, 0.0f}, {0.15f, 0.0f, 0.52f}, {-0.15f, 0.0f, 0.52f});
-	mesh shrub_back = shrub_quad;
-	shrub_back.flip_connectivity();
-	shrub_quad.push_back(shrub_back);
-	shrub_quad.fill_empty_field();
-	shrub_billboard.initialize_data_on_gpu(shrub_quad);
+	mesh shrub_billboard_mesh = mesh_primitive_quadrangle({-0.18f, 0.0f, 0.0f}, {0.18f, 0.0f, 0.0f}, {0.15f, 0.0f, 0.52f}, {-0.15f, 0.0f, 0.52f});
+	mesh shrub_quad_back = shrub_billboard_mesh;
+	shrub_quad_back.flip_connectivity();
+	shrub_billboard_mesh.push_back(shrub_quad_back);
+	mesh shrub_cross_quad = mesh_primitive_quadrangle({0.0f, -0.18f, 0.0f}, {0.0f, 0.18f, 0.0f}, {0.0f, 0.15f, 0.52f}, {0.0f, -0.15f, 0.52f});
+	mesh shrub_cross_back = shrub_cross_quad;
+	shrub_cross_back.flip_connectivity();
+	shrub_billboard_mesh.push_back(shrub_cross_quad);
+	shrub_billboard_mesh.push_back(shrub_cross_back);
+	shrub_billboard_mesh.fill_empty_field();
+	shrub_billboard.initialize_data_on_gpu(shrub_billboard_mesh);
 	shrub_billboard.material.texture_settings.active = false;
 	shrub_billboard.material.texture_settings.two_sided = true;
 	shrub_billboard.material.color = {0.22f, 0.57f, 0.24f};
@@ -427,6 +432,7 @@ void scene_structure::initialize_vegetation()
 			});
 		}
 	}
+	initialize_palm_instance_buffers();
 
 	shrubs.clear();
 	for (int trials = 0; trials < 12000 && shrubs.size() < 460; ++trials) {
@@ -442,6 +448,64 @@ void scene_structure::initialize_vegetation()
 		    rand_uniform(0.0f, 2.0f * Pi),
 		});
 	}
+	initialize_shrub_instance_buffers();
+}
+
+void scene_structure::initialize_palm_instance_buffers()
+{
+	palm_instance_buffers_initialized = false;
+	palm_instance_position_scale.clear();
+	palm_instance_rotation.clear();
+
+	if (!has_palm_model || palms.empty())
+		return;
+
+	palm_instance_position_scale.resize(static_cast<int>(palms.size()));
+	palm_instance_rotation.resize(static_cast<int>(palms.size()));
+	for (int k = 0; k < static_cast<int>(palms.size()); ++k) {
+		palm_instance const& p = palms[k];
+		palm_instance_position_scale[k] = {p.root.x, p.root.y, p.root.z, 2.0f * p.scale};
+		palm_instance_rotation[k] = {p.yaw, 0.08f * gui.wind * std::sin(p.sway_phase), 0.0f, 0.0f};
+	}
+
+	palm_tree.initialize_supplementary_data_on_gpu(palm_instance_position_scale, 4, 1);
+	palm_tree.initialize_supplementary_data_on_gpu(palm_instance_rotation, 5, 1);
+	palm_instance_buffers_initialized = true;
+}
+
+void scene_structure::update_palm_instance_rotation_buffer(float t)
+{
+	if (!palm_instance_buffers_initialized)
+		return;
+
+	for (int k = 0; k < static_cast<int>(palms.size()); ++k) {
+		palm_instance const& p = palms[k];
+		float const sway = 0.08f * gui.wind * std::sin(1.15f * t + p.sway_phase);
+		palm_instance_rotation[k] = {p.yaw, sway, 0.0f, 0.0f};
+	}
+	palm_tree.update_supplementary_data_on_gpu(palm_instance_rotation, 5, static_cast<int>(palms.size()));
+}
+
+void scene_structure::initialize_shrub_instance_buffers()
+{
+	shrub_instance_buffers_initialized = false;
+	shrub_instance_position_scale.clear();
+	shrub_instance_rotation.clear();
+
+	if (shrubs.empty())
+		return;
+
+	shrub_instance_position_scale.resize(static_cast<int>(shrubs.size()));
+	shrub_instance_rotation.resize(static_cast<int>(shrubs.size()));
+	for (int k = 0; k < static_cast<int>(shrubs.size()); ++k) {
+		shrub_instance const& s = shrubs[k];
+		shrub_instance_position_scale[k] = {s.root.x, s.root.y, s.root.z, s.scale};
+		shrub_instance_rotation[k] = {s.yaw, 0.0f, 0.0f, 0.0f};
+	}
+
+	shrub_billboard.initialize_supplementary_data_on_gpu(shrub_instance_position_scale, 4, 1);
+	shrub_billboard.initialize_supplementary_data_on_gpu(shrub_instance_rotation, 5, 1);
+	shrub_instance_buffers_initialized = true;
 }
 
 void scene_structure::initialize_fauna()
@@ -506,6 +570,7 @@ void scene_structure::initialize_particles()
 		    rand_uniform(0.55f, 1.35f),
 		});
 	}
+	initialize_foam_instance_buffers();
 
 	glows.clear();
 	for (int k = 0; k < 220; ++k) {
@@ -524,6 +589,48 @@ void scene_structure::initialize_particles()
 		    rand_uniform(0.9f, 1.4f),
 		    rand_uniform(0.0f, 10.0f),
 		});
+	}
+}
+
+void scene_structure::initialize_foam_instance_buffers()
+{
+	foam_instance_buffers_initialized = false;
+	foam_instance_position_scale.clear();
+	foam_instance_rotation_alpha.clear();
+
+	if (foams.empty())
+		return;
+
+	foam_instance_position_scale.resize(static_cast<int>(foams.size()));
+	foam_instance_rotation_alpha.resize(static_cast<int>(foams.size()));
+	update_foam_instance_buffers(0.0f);
+
+	foam_billboard.initialize_supplementary_data_on_gpu(foam_instance_position_scale, 4, 1);
+	foam_billboard.initialize_supplementary_data_on_gpu(foam_instance_rotation_alpha, 5, 1);
+	foam_instance_buffers_initialized = true;
+}
+
+void scene_structure::update_foam_instance_buffers(float t)
+{
+	if (foams.empty())
+		return;
+
+	if (foam_instance_position_scale.size() != static_cast<int>(foams.size()))
+		foam_instance_position_scale.resize(static_cast<int>(foams.size()));
+	if (foam_instance_rotation_alpha.size() != static_cast<int>(foams.size()))
+		foam_instance_rotation_alpha.resize(static_cast<int>(foams.size()));
+
+	for (int k = 0; k < static_cast<int>(foams.size()); ++k) {
+		foam_instance const& f = foams[k];
+		float const pulse = 0.5f + 0.5f * std::sin(2.6f * t + f.phase);
+		float const angle = std::atan2(f.anchor.y, f.anchor.x);
+		vec3 pos = f.anchor;
+		pos.x += 0.28f * std::cos(angle) * std::sin(1.3f * t + f.phase);
+		pos.y += 0.28f * std::sin(angle) * std::sin(1.3f * t + f.phase);
+		pos.z = water_height(pos.x, pos.y, t) + 0.03f;
+
+		foam_instance_position_scale[k] = {pos.x, pos.y, pos.z, f.scale};
+		foam_instance_rotation_alpha[k] = {0.0f, 0.18f + 0.32f * pulse, 0.0f, 0.0f};
 	}
 }
 
@@ -696,21 +803,21 @@ void scene_structure::draw_vegetation(float t)
 	if (!gui.display_vegetation)
 		return;
 
-	vec3 const camera_pos = camera_control.camera_model.position();
+	if (has_palm_model && palm_instance_buffers_initialized) {
+		update_palm_instance_rotation_buffer(t);
+		palm_tree.model.translation = {0.0f, 0.0f, 0.0f};
+		palm_tree.model.rotation = rotation_transform();
+		palm_tree.model.scaling = 1.0f;
+		palm_tree.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
 
-	for (palm_instance const& p : palms) {
-		float const sway = 0.08f * gui.wind * std::sin(1.15f * t + p.sway_phase);
-		rotation_transform const R = rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, p.yaw) *
-		                           rotation_transform::from_axis_angle({0.0f, 1.0f, 0.0f}, sway);
+		draw(palm_tree, environment, static_cast<int>(palms.size()));
+	}
+	else {
+		for (palm_instance const& p : palms) {
+			float const sway = 0.08f * gui.wind * std::sin(1.15f * t + p.sway_phase);
+			rotation_transform const R = rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, p.yaw) *
+			                             rotation_transform::from_axis_angle({0.0f, 1.0f, 0.0f}, sway);
 
-		if (has_palm_model) {
-			palm_tree.model.translation = p.root;
-			palm_tree.model.rotation = R;
-			palm_tree.model.scaling = 2.0f * p.scale;
-			palm_tree.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
-			draw(palm_tree, environment);
-		}
-		else {
 			palm_fallback_trunk.model.translation = p.root;
 			palm_fallback_trunk.model.rotation = R;
 			palm_fallback_trunk.model.scaling = 1.8f * p.scale;
@@ -729,17 +836,15 @@ void scene_structure::draw_vegetation(float t)
 		}
 	}
 
-	for (shrub_instance const& s : shrubs) {
-		float const facing = std::atan2(camera_pos.y - s.root.y, camera_pos.x - s.root.x) + Pi / 2.0f;
-
-		shrub_billboard.model.translation = s.root;
-		shrub_billboard.model.rotation = rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, facing + s.yaw);
-		shrub_billboard.model.scaling = s.scale;
+	if (shrub_instance_buffers_initialized) {
+		shrub_billboard.model.translation = {0.0f, 0.0f, 0.0f};
+		shrub_billboard.model.rotation = rotation_transform();
+		shrub_billboard.model.scaling = 1.0f;
 		shrub_billboard.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
-		draw(shrub_billboard, environment);
 
-		shrub_billboard.model.rotation = rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, facing + s.yaw + Pi / 2.0f);
-		draw(shrub_billboard, environment);
+		uniform_generic_structure shrub_uniforms;
+		shrub_uniforms.uniform_int["instancing_mode"] = 1;
+		draw(shrub_billboard, environment, static_cast<int>(shrubs.size()), true, shrub_uniforms);
 	}
 }
 
@@ -777,26 +882,25 @@ void scene_structure::draw_foam(float t)
 	if (!gui.display_foam)
 		return;
 
-	vec3 const camera_pos = camera_control.camera_model.position();
+	if (!foam_instance_buffers_initialized)
+		return;
+
+	update_foam_instance_buffers(t);
+	foam_billboard.update_supplementary_data_on_gpu(foam_instance_position_scale, 4, static_cast<int>(foams.size()));
+	foam_billboard.update_supplementary_data_on_gpu(foam_instance_rotation_alpha, 5, static_cast<int>(foams.size()));
+
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-	for (foam_instance const& f : foams) {
-		float const pulse = 0.5f + 0.5f * std::sin(2.6f * t + f.phase);
-		float const angle = std::atan2(f.anchor.y, f.anchor.x);
-		vec3 pos = f.anchor;
-		pos.x += 0.28f * std::cos(angle) * std::sin(1.3f * t + f.phase);
-		pos.y += 0.28f * std::sin(angle) * std::sin(1.3f * t + f.phase);
-		pos.z = water_height(pos.x, pos.y, t) + 0.03f;
+	foam_billboard.material.alpha = 1.0f;
+	foam_billboard.model.translation = {0.0f, 0.0f, 0.0f};
+	foam_billboard.model.rotation = rotation_transform();
+	foam_billboard.model.scaling = 1.0f;
+	foam_billboard.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
 
-		float const facing = std::atan2(camera_pos.y - pos.y, camera_pos.x - pos.x) + Pi / 2.0f;
-		foam_billboard.material.alpha = 0.18f + 0.32f * pulse;
-		foam_billboard.model.translation = pos;
-		foam_billboard.model.rotation = rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, facing);
-		foam_billboard.model.scaling = f.scale;
-		foam_billboard.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
-		draw(foam_billboard, environment);
-	}
+	uniform_generic_structure foam_uniforms;
+	foam_uniforms.uniform_int["instancing_mode"] = 2;
+	draw(foam_billboard, environment, static_cast<int>(foams.size()), true, foam_uniforms);
 
 	glDisable(GL_BLEND);
 }

@@ -174,6 +174,9 @@ namespace cgp
 		// send the uniform values for the environment
 		environment.send_opengl_uniform(drawable.shader, expected_uniforms && environment.default_expected_uniform);
 
+		opengl_uniform(drawable.shader, "use_instancing", instance_count > 1 ? 1 : 0, false);
+		opengl_uniform(drawable.shader, "instancing_mode", 0, false);
+
 		// [Optionnal] send any additional uniform for this specidic draw call
 		additional_uniforms.send_opengl_uniform(drawable.shader, expected_uniforms);
 
