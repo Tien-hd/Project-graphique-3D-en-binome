@@ -118,6 +118,7 @@ struct scene_structure : cgp::scene_inputs_generic {
 	bool palm_instance_buffers_initialized = false;
 	bool shrub_instance_buffers_initialized = false;
 	bool foam_instance_buffers_initialized = false;
+	bool bird_instance_buffers_initialized = false;
 
 	mesh_drawable shrub_billboard;
 	mesh_drawable foam_billboard;
@@ -139,6 +140,14 @@ struct scene_structure : cgp::scene_inputs_generic {
 	cgp::numarray<cgp::vec4> foam_instance_position_scale;
 	cgp::numarray<cgp::vec4> foam_instance_rotation_alpha;
 	std::vector<glow_instance> glows;
+	cgp::numarray<cgp::vec4> bird_body_position_scale;
+	cgp::numarray<cgp::vec4> bird_body_rotation;
+
+	cgp::numarray<cgp::vec4> bird_left_wing_position_scale;
+	cgp::numarray<cgp::vec4> bird_left_wing_rotation;
+
+	cgp::numarray<cgp::vec4> bird_right_wing_position_scale;
+	cgp::numarray<cgp::vec4> bird_right_wing_rotation;
 
 	float terrain_height(float x, float y) const;
 	float water_height(float x, float y, float t) const;
@@ -156,6 +165,8 @@ struct scene_structure : cgp::scene_inputs_generic {
 	void initialize_foam_instance_buffers();
 	void update_foam_instance_buffers(float t, cgp::vec3 const& camera_pos);
 	void update_day_night_cycle(float t);
+	void initialize_bird_instance_buffers();
+	void update_bird_instance_buffers(float t);
 
 	void draw_structures(float t);
 	void draw_vegetation(float t);

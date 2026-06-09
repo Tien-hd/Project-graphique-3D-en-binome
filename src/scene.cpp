@@ -544,7 +544,77 @@ void scene_structure::initialize_fauna()
 		    rand_uniform(0.20f, 0.42f),
 		});
 	}
+	initialize_bird_instance_buffers();
 }
+
+void scene_structure::initialize_bird_instance_buffers()
+{
+    bird_instance_buffers_initialized = false;
+
+    int const N = static_cast<int>(birds.size());
+    if (N == 0)
+        return;
+
+    bird_body_position_scale.resize(N);
+    bird_body_rotation.resize(N);
+
+    bird_left_wing_position_scale.resize(N);
+    bird_left_wing_rotation.resize(N);
+
+    bird_right_wing_position_scale.resize(N);
+    bird_right_wing_rotation.resize(N);
+
+    update_bird_instance_buffers(0.0f);
+
+    bird_body.initialize_supplementary_data_on_gpu(bird_body_position_scale, 4, 1);
+    bird_body.initialize_supplementary_data_on_gpu(bird_body_rotation, 5, 1);
+
+    bird_wing.initialize_supplementary_data_on_gpu(bird_left_wing_position_scale, 4, 1);
+    bird_wing.initialize_supplementary_data_on_gpu(bird_left_wing_rotation, 5, 1);
+
+    bird_instance_buffers_initialized = true;
+}
+
+void scene_structure::update_bird_instance_buffers(float t)
+{
+    int const N = static_cast<int>(birds.size());
+
+    for (int k = 0; k < N; ++k) {
+        bird_instance const& b = birds[k];
+
+        float const a = b.speed * t + b.phase;
+        vec3 const pos = b.center + vec3{
+            b.orbit_radius * std::cos(a),
+            b.orbit_radius * std::sin(a),
+            b.altitude + 0.25f * std::sin(2.5f * a)
+        };
+
+        float const heading = a + Pi / 2.0f;
+        float const wing = 0.9f * std::sin(8.0f * a);
+
+        rotation_transform const R =
+            rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, heading);
+
+        bird_body_position_scale[k] = {pos.x, pos.y, pos.z, b.scale};
+        bird_body_rotation[k] = {heading, 0.0f, 0.0f, 0.0f};
+
+        vec3 const left_pos =
+            pos + R * vec3{0.0f, 0.38f * b.scale, 0.06f * b.scale};
+
+        vec3 const right_pos =
+            pos + R * vec3{0.0f, -0.38f * b.scale, 0.06f * b.scale};
+
+        bird_left_wing_position_scale[k] =
+            {left_pos.x, left_pos.y, left_pos.z, b.scale};
+
+        bird_right_wing_position_scale[k] =
+            {right_pos.x, right_pos.y, right_pos.z, b.scale};
+
+        bird_left_wing_rotation[k] = {heading, wing, 0.0f, 0.0f};
+        bird_right_wing_rotation[k] = {heading, -wing, 0.0f, 0.0f};
+    }
+}
+
 
 void scene_structure::initialize_particles()
 {
@@ -876,31 +946,41 @@ void scene_structure::draw_vegetation(float t)
 
 void scene_structure::draw_fauna(float t)
 {
-	if (!gui.display_fauna)
-		return;
+    if (!gui.display_fauna)
+        return;
 
-	for (bird_instance const& b : birds) {
-		float const a = b.speed * t + b.phase;
-		vec3 const pos = b.center + vec3{b.orbit_radius * std::cos(a), b.orbit_radius * std::sin(a), b.altitude + 0.25f * std::sin(2.5f * a)};
-		float const heading = a + Pi / 2.0f;
-		float const wing = 0.9f * std::sin(8.0f * a);
+    if (!bird_instance_buffers_initialized)
+        return;
 
-		bird_body.model.translation = pos;
-		bird_body.model.rotation = rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, heading);
-		bird_body.model.scaling = b.scale;
-		bird_body.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
-		draw(bird_body, environment);
+    int const N = static_cast<int>(birds.size());
 
-		bird_wing.model.translation = pos + rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, heading) * vec3{0.0f, 0.38f * b.scale, 0.06f * b.scale};
-		bird_wing.model.rotation = rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, heading) * rotation_transform::from_axis_angle({1.0f, 0.0f, 0.0f}, wing);
-		bird_wing.model.scaling = b.scale;
-		bird_wing.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
-		draw(bird_wing, environment);
+    update_bird_instance_buffers(t);
 
-		bird_wing.model.translation = pos + rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, heading) * vec3{0.0f, -0.38f * b.scale, 0.06f * b.scale};
-		bird_wing.model.rotation = rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, heading) * rotation_transform::from_axis_angle({1.0f, 0.0f, 0.0f}, -wing);
-		draw(bird_wing, environment);
-	}
+    bird_body.update_supplementary_data_on_gpu(bird_body_position_scale, 4, N);
+    bird_body.update_supplementary_data_on_gpu(bird_body_rotation, 5, N);
+
+    uniform_generic_structure bird_uniforms;
+    bird_uniforms.uniform_int["instancing_mode"] = 0;
+
+    bird_body.model.translation = {0.0f, 0.0f, 0.0f};
+    bird_body.model.rotation = rotation_transform();
+    bird_body.model.scaling = 1.0f;
+    bird_body.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+
+    draw(bird_body, environment, N, true, bird_uniforms);
+
+    bird_wing.model.translation = {0.0f, 0.0f, 0.0f};
+    bird_wing.model.rotation = rotation_transform();
+    bird_wing.model.scaling = 1.0f;
+    bird_wing.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+
+    bird_wing.update_supplementary_data_on_gpu(bird_left_wing_position_scale, 4, N);
+    bird_wing.update_supplementary_data_on_gpu(bird_left_wing_rotation, 5, N);
+    draw(bird_wing, environment, N, true, bird_uniforms);
+
+    bird_wing.update_supplementary_data_on_gpu(bird_right_wing_position_scale, 4, N);
+    bird_wing.update_supplementary_data_on_gpu(bird_right_wing_rotation, 5, N);
+    draw(bird_wing, environment, N, true, bird_uniforms);
 }
 
 void scene_structure::draw_foam(float t)
