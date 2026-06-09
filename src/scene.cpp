@@ -399,14 +399,9 @@ void scene_structure::initialize_vegetation()
 	palm_fallback_leaf.material.phong = {0.45f, 0.56f, 0.08f, 8.0f};
 
 	mesh shrub_billboard_mesh = mesh_primitive_quadrangle({-0.18f, 0.0f, 0.0f}, {0.18f, 0.0f, 0.0f}, {0.15f, 0.0f, 0.52f}, {-0.15f, 0.0f, 0.52f});
-	mesh shrub_quad_back = shrub_billboard_mesh;
-	shrub_quad_back.flip_connectivity();
-	shrub_billboard_mesh.push_back(shrub_quad_back);
-	mesh shrub_cross_quad = mesh_primitive_quadrangle({0.0f, -0.18f, 0.0f}, {0.0f, 0.18f, 0.0f}, {0.0f, 0.15f, 0.52f}, {0.0f, -0.15f, 0.52f});
-	mesh shrub_cross_back = shrub_cross_quad;
-	shrub_cross_back.flip_connectivity();
-	shrub_billboard_mesh.push_back(shrub_cross_quad);
-	shrub_billboard_mesh.push_back(shrub_cross_back);
+	mesh shrub_back = shrub_billboard_mesh;
+	shrub_back.flip_connectivity();
+	shrub_billboard_mesh.push_back(shrub_back);
 	shrub_billboard_mesh.fill_empty_field();
 	shrub_billboard.initialize_data_on_gpu(shrub_billboard_mesh);
 	shrub_billboard.material.texture_settings.active = false;

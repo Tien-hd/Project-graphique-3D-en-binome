@@ -38,24 +38,15 @@ vec3 rotate_y_then_z(vec3 p, float yaw, float sway)
 	return vec3(cz * q.x - sz * q.y, sz * q.x + cz * q.y, q.z);
 }
 
-vec3 rotate_z(vec3 p, float angle)
+mat3 camera_world_orientation()
 {
-	float c = cos(angle);
-	float s = sin(angle);
-	return vec3(c * p.x - s * p.y, s * p.x + c * p.y, p.z);
+	return transpose(mat3(view));
 }
-
-vec3 camera_world_position()
-{
-	mat3 camera_orientation = transpose(mat3(view));
-	vec3 camera_view_origin = vec3(view * vec4(0.0, 0.0, 0.0, 1.0));
-	return -camera_orientation * camera_view_origin;
-}
-
 
 void main()
 {
 	mat4 modelNormal = transpose(inverse(model));
+	mat3 modelNormal3 = mat3(modelNormal);
 
 	// The position of the vertex in the world space
 	vec4 position;
@@ -63,13 +54,23 @@ void main()
 	float alpha = 1.0;
 	if (use_instancing == 1) {
 		if (instancing_mode == 1 || instancing_mode == 2) {
-			vec3 camera_position = camera_world_position();
-			vec2 to_camera = camera_position.xy - instance_position_scale.xy;
-			float facing = atan(to_camera.y, to_camera.x) + 1.57079632679 + instance_rotation.x;
-			vec3 rotated_position = rotate_z(vertex_position, facing);
-			vec3 rotated_normal = rotate_z(vertex_normal, facing);
-			position = model * vec4(instance_position_scale.xyz + instance_position_scale.w * rotated_position, 1.0);
-			normal = modelNormal * vec4(rotated_normal, 0.0);
+			mat3 camera_orientation = camera_world_orientation();
+			vec3 camera_right = normalize(camera_orientation * vec3(1.0, 0.0, 0.0));
+			vec3 camera_up = normalize(camera_orientation * vec3(0.0, 1.0, 0.0));
+
+			float spin = instance_rotation.x;
+			float c = cos(spin);
+			float s = sin(spin);
+			vec2 billboard_coord = vec2(
+				c * vertex_position.x - s * vertex_position.z,
+				s * vertex_position.x + c * vertex_position.z
+			);
+
+			vec3 billboard_position = instance_position_scale.xyz +
+				instance_position_scale.w * (billboard_coord.x * camera_right + billboard_coord.y * camera_up);
+			vec3 billboard_normal = normalize(cross(camera_right, camera_up));
+			position = model * vec4(billboard_position, 1.0);
+			normal = vec4(normalize(modelNormal3 * billboard_normal), 0.0);
 			if (instancing_mode == 2) {
 				alpha = instance_rotation.y;
 			}
