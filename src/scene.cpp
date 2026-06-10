@@ -252,6 +252,19 @@ float scene_structure::water_height(float x, float y, float t) const
 	return sea_level + boundary_freeze * wave + shore_wave;
 }
 
+vec3 scene_structure::compute_sun_direction(float current_time_of_day)
+{
+	float const sun_angle = 2.0f * Pi * current_time_of_day;
+
+	// One simple arc: high in the sky at time 0, below the horizon at time 0.5.
+	// The small y component keeps the path diagonal instead of perfectly vertical.
+	return normalize(vec3{
+	    0.90f * std::sin(sun_angle),
+	    -0.25f * std::cos(sun_angle),
+	    std::cos(sun_angle)
+	});
+}
+
 void scene_structure::initialize_terrain()
 {
 	float const L = 48.0f;
@@ -749,6 +762,8 @@ void scene_structure::update_day_night_cycle(float t)
 {
 	// Day-night cycle
 	time_of_day = std::fmod(std::max(0.0f, day_night_speed) * t, 1.0f);
+	sun_direction = gui.moving_sun ? compute_sun_direction(time_of_day) : normalize(vec3{0.52f, -0.28f, 0.81f});
+
 	day_factor = 1.0f - pulse_cycle(time_of_day);
 	night_factor = pulse_cycle(time_of_day);
 	dusk_factor = std::pow(std::sin(2.0f * Pi * time_of_day), 2.0f);
@@ -762,10 +777,8 @@ void scene_structure::update_day_night_cycle(float t)
 	environment.background_color = sky;
 
 	// Light direction/intensity (sun by day, weak moon-like light at night)
-	float const sun_angle = 2.0f * Pi * time_of_day;
-	float const sun_elevation = std::cos(sun_angle);
-	vec3 const light_dir = normalize(vec3{std::cos(sun_angle), 0.22f * std::sin(sun_angle), sun_elevation});
-	environment.light = vec3{0.0f, 0.0f, 0.0f} + 260.0f * light_dir;
+	float const sun_elevation = sun_direction.z;
+	environment.light = sun_distance * sun_direction;
 	environment.light_intensity = 0.14f + 1.10f * std::max(0.0f, sun_elevation);
 
 	// Cold ambient at night to avoid black crush
@@ -1074,11 +1087,18 @@ void scene_structure::draw_glows(float t)
 
 void scene_structure::draw_sky_elements(float t)
 {
-	vec3 const sun_pos = {26.0f, -18.0f, 16.0f};
+	if (!gui.display_sun_disc || gui.display_skybox)
+		return;
+
+	vec3 const camera_pos = camera_control.camera_model.position();
+	vec3 const sun_pos = camera_pos + sun_distance * sun_direction;
 	float const sun_visibility = saturate(1.0f - 1.15f * night_factor);
+	if (sun_visibility < 0.01f)
+		return;
+
 	sun_disc.model.translation = sun_pos;
 	sun_disc.model.rotation = rotation_transform();
-	sun_disc.model.scaling = 2.3f;
+	sun_disc.model.scaling = sun_size;
 	sun_disc.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
 	sun_disc.material.alpha = sun_visibility;
 	draw(sun_disc, environment);
@@ -1090,7 +1110,7 @@ void scene_structure::draw_sky_elements(float t)
 		sun_disc.material.alpha = sun_visibility * (0.16f - 0.03f * k);
 		sun_disc.material.color = {1.0f, 0.76f + 0.05f * k, 0.46f};
 		sun_disc.model.translation = sun_pos;
-		sun_disc.model.scaling = 3.2f + 1.35f * k + pulse;
+		sun_disc.model.scaling = sun_size * (1.40f + 0.58f * k) + pulse;
 		draw(sun_disc, environment);
 	}
 	glDisable(GL_BLEND);
@@ -1153,9 +1173,7 @@ void scene_structure::display_frame()
 		draw(skybox, environment);
 		glDepthMask(GL_TRUE);
 	}
-	else {
-		draw_sky_elements(t);
-	}
+	draw_sky_elements(t);
 	draw(island, environment);
 
 	draw_structures(t);
@@ -1222,6 +1240,10 @@ void scene_structure::display_gui()
 	ImGui::Checkbox("Wireframe", &gui.display_wireframe);
 	ImGui::Checkbox("Animate", &gui.animate_scene);
 	ImGui::Checkbox("Skybox", &gui.display_skybox);
+	ImGui::Checkbox("Moving sun", &gui.moving_sun);
+	ImGui::Checkbox("Sun disc", &gui.display_sun_disc);
+	ImGui::SliderFloat("Sun distance", &sun_distance, 50.0f, 300.0f);
+	ImGui::SliderFloat("Sun size", &sun_size, 1.0f, 20.0f);
 	ImGui::SliderFloat("Wind", &gui.wind, 0.0f, 2.0f);
 	ImGui::Checkbox("Water", &gui.display_water);
 	ImGui::Checkbox("Vegetation", &gui.display_vegetation);
@@ -1236,7 +1258,7 @@ void scene_structure::display_gui()
 
 	ImGui::Separator();
 	ImGui::Text("Tropical Volcanic Island");
-	ImGui::Text("Skybox: %s", gui.display_skybox ? "procedural cubemap on" : "off (fallback sun)");
+	ImGui::Text("Skybox: %s", gui.display_skybox ? "procedural cubemap on (mesh sun hidden)" : "off (mesh sun visible)");
 	ImGui::Text("Time of day: %.2f | Night: %.2f | Fog: %.4f", time_of_day, night_factor, environment.fog_density);
 	ImGui::Text("Beam visibility: %.3f", beam_visibility_debug);
 	ImGui::Text("Palm model: %s", has_palm_model ? "loaded" : "fallback");

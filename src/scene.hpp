@@ -18,6 +18,8 @@ struct gui_parameters {
 	bool display_fauna = false;
 	bool display_foam = false;
 	bool display_lighthouse_beam = true;
+	bool moving_sun = true;
+	bool display_sun_disc = true;
 	float wind = 1.0f;
 };
 
@@ -91,6 +93,9 @@ struct scene_structure : cgp::scene_inputs_generic {
 	float day_factor = 1.0f;
 	float dusk_factor = 0.0f;
 	float night_factor = 0.0f;
+	float sun_distance = 20.0f;
+	float sun_size = 2.3f;
+	cgp::vec3 sun_direction = {0.52f, -0.28f, 0.81f};
 
 	mesh island_cpu;
 	mesh water_cpu;
@@ -164,6 +169,7 @@ struct scene_structure : cgp::scene_inputs_generic {
 	void initialize_shrub_instance_buffers();
 	void initialize_foam_instance_buffers();
 	void update_foam_instance_buffers(float t, cgp::vec3 const& camera_pos);
+	cgp::vec3 compute_sun_direction(float time_of_day);
 	void update_day_night_cycle(float t);
 	void initialize_bird_instance_buffers();
 	void update_bird_instance_buffers(float t);
