@@ -22,6 +22,7 @@ struct gui_parameters {
 	bool display_sun_disc = true;
 	bool display_clouds = true;
 	bool display_wind_streaks = true;
+	bool use_textured_skybox = true;
 	float wind = 1.0f;
 };
 
@@ -93,6 +94,8 @@ struct scene_structure : cgp::scene_inputs_generic {
 
 	mesh_drawable global_frame;
 	cgp::skybox_drawable skybox{};
+	cgp::skybox_drawable skybox_night{};
+	cgp::opengl_shader_structure skybox_day_night_shader;
 	cgp::timer_basic timer;
 
 	float sea_level = 0.0f;
@@ -110,12 +113,15 @@ struct scene_structure : cgp::scene_inputs_generic {
 	float day_factor = 1.0f;
 	float dusk_factor = 0.0f;
 	float night_factor = 0.0f;
-	float sun_distance = 20.0f;
+	float sun_distance = 160.0f;
 	float sun_size = 2.3f;
 	cgp::vec3 sun_direction = {0.52f, -0.28f, 0.81f};
 	float cloud_speed = 1.8f;
 	float wind_streak_opacity = 0.22f;
 	float wind_streak_speed = 3.0f;
+	bool skybox_day_texture_loaded = false;
+	bool skybox_night_texture_loaded = false;
+	bool skybox_using_procedural_fallback = true;
 
 	mesh island_cpu;
 	mesh water_cpu;

@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdint>
 #include <cmath>
+#include <fstream>
 #include <iostream>
 
 using namespace cgp;
@@ -21,6 +22,64 @@ struct transparent_instance {
 	vec3 position;
 	float alpha = 1.0f;
 };
+
+struct cubemap_cross_faces {
+	image_structure x_neg;
+	image_structure x_pos;
+	image_structure y_neg;
+	image_structure y_pos;
+	image_structure z_neg;
+	image_structure z_pos;
+};
+
+std::string const skybox_blend_vertex_shader = R"(#version 330 core
+layout (location = 0) in vec3 position;
+
+out struct fragment_data
+{
+	vec3 position;
+} fragment;
+
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 projection;
+
+void main()
+{
+	fragment.position = position.xyz;
+
+	mat4 modelView = mat4(mat3(view * model));
+	gl_Position = projection * modelView * vec4(position, 1.0);
+}
+)";
+
+std::string const skybox_blend_fragment_shader = R"(#version 330 core
+in struct fragment_data
+{
+	vec3 position;
+} fragment;
+
+layout(location=0) out vec4 FragColor;
+
+uniform samplerCube image_skybox_day;
+uniform samplerCube image_skybox_night;
+uniform mat3 skybox_rotation;
+uniform float night_blend;
+uniform int use_night_texture;
+uniform vec3 night_fallback_color;
+uniform float alpha_color_blending;
+uniform vec3 color_blending;
+
+void main()
+{
+	vec3 p = skybox_rotation * fragment.position;
+	vec3 day_color = texture(image_skybox_day, p).rgb;
+	vec3 night_color = use_night_texture == 1 ? texture(image_skybox_night, p).rgb : night_fallback_color;
+	vec3 texture_color = mix(day_color, night_color, night_blend);
+	vec3 color_blend = mix(texture_color, color_blending, alpha_color_blending);
+	FragColor = vec4(color_blend, 1.0);
+}
+)";
 
 float distance_squared(vec3 const& a, vec3 const& b)
 {
@@ -42,6 +101,122 @@ float smoothstep(float edge0, float edge1, float x)
 vec3 mix_color(vec3 const& a, vec3 const& b, float t)
 {
 	return (1.0f - t) * a + t * b;
+}
+
+bool file_exists(std::string const& path)
+{
+	std::ifstream f(path);
+	return f.good();
+}
+
+
+bool extract_cubemap_cross_faces(image_structure const& cross, cubemap_cross_faces& faces)
+{
+	int N = 0;
+	bool horizontal_cross = false;
+	bool vertical_cross = false;
+
+	if (cross.width % 4 == 0 && cross.height % 3 == 0 && cross.width / 4 == cross.height / 3) {
+		N = cross.width / 4;
+		horizontal_cross = true;
+	}
+	else if (cross.width % 3 == 0 && cross.height % 4 == 0 && cross.width / 3 == cross.height / 4) {
+		N = cross.width / 3;
+		vertical_cross = true;
+	}
+	else {
+		return false;
+	}
+
+	auto tile = [&cross, N](int tx, int ty) {
+		return cross.subimage(tx * N, ty * N, (tx + 1) * N, (ty + 1) * N);
+	};
+
+	// Horizontal cross:      +Z
+	//                   -X  +Y  +X  -Y
+	//                       -Z
+	if (horizontal_cross) {
+		faces.x_neg = tile(0, 1).rotate_90_degrees_counterclockwise();
+		faces.x_pos = tile(2, 1).rotate_90_degrees_clockwise();
+		faces.y_neg = tile(3, 1).rotate_90_degrees_clockwise().rotate_90_degrees_clockwise();
+		faces.y_pos = tile(1, 1);
+		faces.z_neg = tile(1, 2).mirror_horizontal();
+		faces.z_pos = tile(1, 0).mirror_vertical();
+	}
+
+	// Vertical cross:        +Y
+	//                   -X  +Z  +X
+	//                       -Y
+	//                       -Z
+	if (vertical_cross) {
+		faces.x_neg = tile(0, 1);
+		faces.x_pos = tile(2, 1);
+		faces.y_neg = tile(1, 2);
+		faces.y_pos = tile(1, 0);
+		faces.z_neg = tile(1, 3);
+		faces.z_pos = tile(1, 1);
+	}
+
+	return true;
+}
+
+bool initialize_cubemap_from_cross(cgp::opengl_texture_image_structure& texture, std::string const& path)
+{
+	if (!file_exists(path))
+		return false;
+
+	image_structure const cross = image_load_file(path);
+	cubemap_cross_faces faces;
+	if (!extract_cubemap_cross_faces(cross, faces))
+		return false;
+
+	texture.initialize_cubemap_on_gpu(faces.x_neg, faces.x_pos, faces.y_neg, faces.y_pos, faces.z_neg, faces.z_pos);
+	return true;
+}
+
+void draw_skybox_day_night(skybox_drawable const& day_skybox,
+                           skybox_drawable const& night_skybox,
+                           opengl_shader_structure const& shader,
+                           environment_structure const& environment,
+                           float night_blend,
+                           bool use_night_texture,
+                           vec3 const& night_fallback_color)
+{
+	if (day_skybox.vbo_position.size == 0 || day_skybox.ebo_connectivity.size == 0 || day_skybox.texture.id == 0)
+		return;
+
+	glUseProgram(shader.id);
+
+	opengl_uniform(shader, "model", day_skybox.model.matrix());
+	opengl_uniform(shader, "skybox_rotation", day_skybox.skybox_rotation);
+	opengl_uniform(shader, "night_blend", night_blend);
+	opengl_uniform(shader, "use_night_texture", use_night_texture ? 1 : 0);
+	opengl_uniform(shader, "night_fallback_color", night_fallback_color);
+	opengl_uniform(shader, "alpha_color_blending", day_skybox.alpha_color_blending);
+	opengl_uniform(shader, "color_blending", day_skybox.color_blending);
+	environment.send_opengl_uniform(shader);
+
+	glActiveTexture(GL_TEXTURE0);
+	day_skybox.texture.bind();
+	opengl_uniform(shader, "image_skybox_day", 0);
+
+	glActiveTexture(GL_TEXTURE1);
+	if (use_night_texture)
+		night_skybox.texture.bind();
+	else
+		day_skybox.texture.bind();
+	opengl_uniform(shader, "image_skybox_night", 1);
+
+	glBindVertexArray(day_skybox.vao);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, day_skybox.ebo_connectivity.id);
+	glDrawElements(GL_TRIANGLES, GLsizei(day_skybox.ebo_connectivity.size * 3), GL_UNSIGNED_INT, nullptr);
+
+	glBindVertexArray(0);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+	glUseProgram(0);
 }
 
 vec3 ocean_near_tint()
@@ -85,10 +260,10 @@ vec3 cubemap_direction_from_face(int face_id, float u, float v)
 	switch (face_id) {
 	case 0: return normalize(vec3{-1.0f, -v, u});  // X-
 	case 1: return normalize(vec3{1.0f, -v, -u});  // X+
-	case 2: return normalize(vec3{u, -1.0f, -v});  // Y-
+	case 2: return normalize(vec3{-u, -1.0f, v});  // Y-
 	case 3: return normalize(vec3{u, 1.0f, v});    // Y+
 	case 4: return normalize(vec3{-u, -v, -1.0f}); // Z-
-	default: return normalize(vec3{u, -v, 1.0f});  // Z+
+	default: return normalize(vec3{u, v, 1.0f});  // Z+
 	}
 }
 
@@ -427,20 +602,37 @@ void scene_structure::initialize_skybox()
 	// skybox_drawable has raw OpenGL handles; enforce zero-initialized state before first GPU init.
 	skybox = skybox_drawable{};
 	skybox.initialize_data_on_gpu();
+	skybox_night = skybox_drawable{};
+	skybox_night.initialize_data_on_gpu();
 	glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
 
-	int const N = 1024;
-	vec3 const water_tint = ocean_near_tint();
-	image_structure const x_neg = generate_cubemap_face(0, N, water_tint);
-	image_structure const x_pos = generate_cubemap_face(1, N, water_tint);
-	image_structure const y_neg = generate_cubemap_face(2, N, water_tint);
-	image_structure const y_pos = generate_cubemap_face(3, N, water_tint);
-	image_structure const z_neg = generate_cubemap_face(4, N, water_tint);
-	image_structure const z_pos = generate_cubemap_face(5, N, water_tint);
-	skybox.texture.initialize_cubemap_on_gpu(x_neg, x_pos, y_neg, y_pos, z_neg, z_pos);
+	bool shader_ok = false;
+	skybox_day_night_shader.load_from_inline_text(skybox_blend_vertex_shader, skybox_blend_fragment_shader, &shader_ok);
+	if (!shader_ok)
+		warning_cgp("Could not load day-night skybox shader", "Using default skybox shader instead.");
+
+	std::string const day_path = project::path + "assets/skybox_02.jpg";
+	std::string const night_path = project::path + "assets/skybox_night.jpg";
+	skybox_day_texture_loaded = initialize_cubemap_from_cross(skybox.texture, day_path);
+	skybox_night_texture_loaded = initialize_cubemap_from_cross(skybox_night.texture, night_path);
+	skybox_using_procedural_fallback = !skybox_day_texture_loaded;
+
+	if (skybox_using_procedural_fallback) {
+		int const N = 1024;
+		vec3 const water_tint = ocean_near_tint();
+		image_structure const x_neg = generate_cubemap_face(0, N, water_tint);
+		image_structure const x_pos = generate_cubemap_face(1, N, water_tint);
+		image_structure const y_neg = generate_cubemap_face(2, N, water_tint);
+		image_structure const y_pos = generate_cubemap_face(3, N, water_tint);
+		image_structure const z_neg = generate_cubemap_face(4, N, water_tint);
+		image_structure const z_pos = generate_cubemap_face(5, N, water_tint);
+		skybox.texture.initialize_cubemap_on_gpu(x_neg, x_pos, y_neg, y_pos, z_neg, z_pos);
+	}
 
 	skybox.alpha_color_blending = 0.0f;
 	skybox.color_blending = {1.0f, 1.0f, 1.0f};
+	skybox_night.alpha_color_blending = 0.0f;
+	skybox_night.color_blending = {1.0f, 1.0f, 1.0f};
 }
 
 void scene_structure::initialize_structures()
@@ -748,10 +940,11 @@ void scene_structure::initialize_particles()
 	foam_billboard.material.alpha = 0.45f;
 	foam_billboard.material.phong = {0.35f, 0.20f, 0.02f, 6.0f};
 
-	sun_disc.initialize_data_on_gpu(mesh_primitive_sphere(1.0f));
+	sun_disc.initialize_data_on_gpu(mesh_primitive_disc(1.0f, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 64));
 	sun_disc.material.texture_settings.active = false;
-	sun_disc.material.color = {1.0f, 0.88f, 0.52f};
-	sun_disc.material.phong = {0.85f, 0.22f, 0.10f, 8.0f};
+	sun_disc.material.texture_settings.two_sided = true;
+	sun_disc.material.color =  {1.0f, 0.92f, 0.45f};
+	sun_disc.material.phong = {1.0f, 0.0f, 0.0f, 1.0f};
 
 	glow_orb.initialize_data_on_gpu(mesh_primitive_sphere(1.0f));
 	glow_orb.material.texture_settings.active = false;
@@ -833,12 +1026,12 @@ void scene_structure::initialize_weather_effects()
 			rand_uniform(8.0f, 15.5f)
 		};
 
-		float const base_length = rand_uniform(10.0f, 18.0f);
-		float const base_width  = rand_uniform(1.4f, 2.4f);
+		float const base_length = rand_uniform(7.0f, 12.0f);
+		float const base_width  = rand_uniform(2.4f, 3.6f);
 		float const base_phase  = rand_uniform(0.0f, 10.0f);
 		float const base_bend   = rand_uniform(0.75f, 1.25f);
 
-		float const offset = rand_uniform(0.1f, 0.2f);
+		float const offset = rand_uniform(0.05f, 0.08f);
 
 		wind_streaks.push_back({
 			base_pos - offset * side,
@@ -1006,9 +1199,16 @@ void scene_structure::update_day_night_cycle(float t)
 	environment.fog_color = mix_color(mix_color(fog_day, fog_dusk, dusk_factor), fog_night, night_factor);
 
 	// Keep skybox synchronized to the cycle without regenerating cubemap every frame
-	skybox.alpha_color_blending = 0.08f + 0.62f * night_factor + 0.20f * dusk_factor;
+	if (gui.use_textured_skybox && skybox_day_texture_loaded) {
+		skybox.alpha_color_blending = 0.10f * dusk_factor;
+	}
+	else {
+		skybox.alpha_color_blending = 0.08f + 0.62f * night_factor + 0.20f * dusk_factor;
+	}
 	skybox.alpha_color_blending = saturate(skybox.alpha_color_blending);
 	skybox.color_blending = mix_color(mix_color(sky_day, sky_dusk, dusk_factor), sky_night, night_factor);
+	skybox_night.alpha_color_blending = skybox.alpha_color_blending;
+	skybox_night.color_blending = skybox.color_blending;
 }
 
 void scene_structure::draw_lighthouse_beam_effect(float t, vec3 const& lighthouse_pos)
@@ -1356,34 +1556,56 @@ void scene_structure::draw_wind_streaks(float t)
 
 void scene_structure::draw_sky_elements(float t)
 {
-	if (!gui.display_sun_disc || gui.display_skybox)
+	if (!gui.display_sun_disc)
 		return;
 
 	vec3 const camera_pos = camera_control.camera_model.position();
 	vec3 const sun_pos = camera_pos + sun_distance * sun_direction;
-	float const sun_visibility = saturate(1.0f - 1.15f * night_factor);
+	float const sun_visibility = saturate(1.0f - 1.35f * night_factor);
 	if (sun_visibility < 0.01f)
 		return;
 
-	sun_disc.model.translation = sun_pos;
-	sun_disc.model.rotation = rotation_transform();
-	sun_disc.model.scaling = sun_size;
-	sun_disc.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
-	sun_disc.material.alpha = sun_visibility;
-	draw(sun_disc, environment);
+	vec3 const view_dir = normalize(camera_pos - sun_pos);
+	rotation_transform const R_billboard = rotation_transform::from_vector_transform({0.0f, 0.0f, 1.0f}, view_dir);
+	float const dusk_warmth = saturate(0.35f + 0.65f * dusk_factor);
 
 	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	for (int k = 0; k < 2; ++k) {
-		float const pulse = 0.15f * std::sin(0.7f * t + 0.8f * k);
-		sun_disc.material.alpha = sun_visibility * (0.16f - 0.03f * k);
-		sun_disc.material.color = {1.0f, 0.76f + 0.05f * k, 0.46f};
+	// glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+	glDepthMask(GL_FALSE);
+
+	for (int k = 0; k < 3; ++k) {
+		float const pulse = 0.08f * std::sin(0.7f * t + 0.9f * k);
+		float const layer_scale = sun_size * (k == 0 ? 3.7f : (k == 1 ? 2.1f : 1.0f)) + pulse;
+		float const layer_alpha = sun_visibility * (k == 0 ? 0.08f : (k == 1 ? 0.18f : 0.95f));
+
+		if (k < 2)
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE); // glow/halo
+		else
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); // core
+
+		sun_disc.material.alpha = layer_alpha;
+		
+		if (k == 2)
+			sun_disc.material.color = mix_color(vec3{1.0f, 0.93f, 0.62f}, vec3{1.0f, 0.98f, 0.86f}, 1.0f - dusk_factor);
+		else
+			sun_disc.material.color = mix_color(vec3{1.0f, 0.58f, 0.22f}, vec3{1.0f, 0.82f, 0.45f}, dusk_warmth);
+
+		// if (k == 2)
+		// 	sun_disc.material.color = {1.0f, 0.97f, 0.72f};
+		// else
+		// 	sun_disc.material.color = {1.0f, 0.72f, 0.25f};
+
 		sun_disc.model.translation = sun_pos;
-		sun_disc.model.scaling = sun_size * (1.40f + 0.58f * k) + pulse;
+		sun_disc.model.rotation = R_billboard;
+		sun_disc.model.scaling = layer_scale;
+		sun_disc.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+
 		draw(sun_disc, environment);
 	}
-	glDisable(GL_BLEND);
 
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
 	sun_disc.material.alpha = 1.0f;
 	sun_disc.material.color = {1.0f, 0.88f, 0.52f};
 }
@@ -1441,7 +1663,14 @@ void scene_structure::display_frame()
 
 	if (gui.display_skybox) {
 		glDepthMask(GL_FALSE);
-		draw(skybox, environment);
+		if (gui.use_textured_skybox && skybox_day_texture_loaded && skybox_day_night_shader.id != 0) {
+			vec3 const sky_night = {0.04f, 0.07f, 0.14f};
+			draw_skybox_day_night(skybox, skybox_night, skybox_day_night_shader, environment,
+			                       saturate(night_factor), skybox_night_texture_loaded, sky_night);
+		}
+		else {
+			draw(skybox, environment);
+		}
 		glDepthMask(GL_TRUE);
 	}
 	draw_sky_elements(t);
@@ -1513,6 +1742,7 @@ void scene_structure::display_gui()
 	ImGui::Checkbox("Wireframe", &gui.display_wireframe);
 	ImGui::Checkbox("Animate", &gui.animate_scene);
 	ImGui::Checkbox("Skybox", &gui.display_skybox);
+	ImGui::Checkbox("Textured skybox", &gui.use_textured_skybox);
 	ImGui::Checkbox("Moving sun", &gui.moving_sun);
 	ImGui::Checkbox("Sun disc", &gui.display_sun_disc);
 	ImGui::SliderFloat("Sun distance", &sun_distance, 2.0f, 300.0f);
@@ -1536,7 +1766,14 @@ void scene_structure::display_gui()
 
 	ImGui::Separator();
 	ImGui::Text("Tropical Volcanic Island");
-	ImGui::Text("Skybox: %s", gui.display_skybox ? "procedural cubemap on (mesh sun hidden)" : "off (mesh sun visible)");
+	char const* skybox_mode = "off";
+	if (gui.display_skybox) {
+		if (gui.use_textured_skybox && skybox_day_texture_loaded)
+			skybox_mode = skybox_night_texture_loaded ? "textured day/night" : "textured day + night tint";
+		else
+			skybox_mode = skybox_using_procedural_fallback ? "procedural fallback" : "procedural debug";
+	}
+	ImGui::Text("Skybox: %s", skybox_mode);
 	ImGui::Text("Time of day: %.2f | Night: %.2f | Fog: %.4f", time_of_day, night_factor, environment.fog_density);
 	ImGui::Text("Beam visibility: %.3f", beam_visibility_debug);
 	ImGui::Text("Palm model: %s", has_palm_model ? "loaded" : "fallback");
