@@ -445,7 +445,7 @@ void scene_structure::initialize_skybox()
 
 void scene_structure::initialize_structures()
 {
-	lighthouse_tower.initialize_data_on_gpu(mesh_primitive_cylinder(0.85f, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 5.0f}, 40, 20, true));
+	lighthouse_tower.initialize_data_on_gpu(mesh_primitive_cylinder(0.85f, {0.0f, 0.0f, -1.0f}, {0.0f, 0.0f, 5.0f}, 40, 24, true));
 	lighthouse_tower.material.texture_settings.active = false;
 	lighthouse_tower.material.color = {0.97f, 0.97f, 0.96f};
 	lighthouse_tower.material.phong = {0.55f, 0.58f, 0.30f, 82.0f};
