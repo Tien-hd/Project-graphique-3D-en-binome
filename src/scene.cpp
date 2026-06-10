@@ -218,6 +218,11 @@ float scene_structure::water_height(float x, float y, float t) const
 	float const r = std::sqrt(x * x + y * y);
 	float const boundary_freeze = 1.0f - smoothstep(98.0f, 118.0f, r);
 
+	// Elliptical distance around the island. gamma stretches the rings along X so
+	// they follow the island footprint better than circular waves.
+	float const gamma = 1.5f;
+	float const d = std::sqrt((x / gamma) * (x / gamma) + y * y);
+
 	std::array<vec2, 5> const dirs = {
 	    normalize(vec2{0.92f, 0.38f}),
 	    normalize(vec2{-0.27f, 0.96f}),
@@ -230,26 +235,33 @@ float scene_structure::water_height(float x, float y, float t) const
 	std::array<float, 5> const speed = {0.95f, -1.25f, 1.62f, -1.92f, 2.20f};
 	std::array<float, 5> const phase = {0.4f, 1.3f, 2.1f, 3.7f, 5.2f};
 
-	float wave = 0.0f;
+	float offshore_wave = 0.0f;
 	vec2 const p2 = {x, y};
 	for (int k = 0; k < 5; ++k) {
 		float const u = dot(dirs[k], p2);
-		wave += amp[k] * std::sin(freq[k] * u + speed[k] * t + phase[k]);
+		offshore_wave += amp[k] * std::sin(freq[k] * u + speed[k] * t + phase[k]);
 	}
 
 	// Inverted sinus component for sharper alternating crests.
 	float const phi = 1.65f * dot(p2, normalize(vec2{0.61f, -0.79f})) - 2.05f * t + 0.8f;
 	float const inverted = 1.0f - 2.0f * std::abs(std::sin(phi)); // in [-1,1]
-	wave += 0.065f * inverted;
+	offshore_wave += 0.065f * inverted;
 
 	float const chop = std::sin(2.8f * phi + 0.9f) * std::sin(1.3f * dot(p2, normalize(vec2{-0.88f, 0.47f})) - 1.5f * t);
-	wave += 0.028f * chop;
+	offshore_wave += 0.028f * chop;
 
-	float const shore_d = std::abs(terrain_height(x, y) - sea_level);
-	float const shore_boost = std::exp(-(shore_d * shore_d) / 0.11f);
-	float const shore_wave = 0.05f * shore_boost * std::sin(3.8f * dot(p2, normalize(vec2{0.86f, 0.51f})) - 3.1f * t);
+	// Inward concentric shore waves: beta*d + c*t makes a crest move toward
+	// smaller d as time increases.
+	float const B = 0.08f;
+	float const beta = 3.5f;
+	float const c = 1.5f;
+	float const concentric_wave = B * std::cos(beta * d + c * t);
 
-	return sea_level + boundary_freeze * wave + shore_wave;
+	// Smooth transition to the existing offshore directional wave field.
+	float const blend_to_offshore = smoothstep(18.0f, 32.0f, d);
+	float const wave = (1.0f - blend_to_offshore) * concentric_wave + blend_to_offshore * offshore_wave;
+
+	return sea_level + boundary_freeze * wave;
 }
 
 vec3 scene_structure::compute_sun_direction(float current_time_of_day)
@@ -325,7 +337,7 @@ void scene_structure::initialize_water()
 	}
 
 	water_shader.load(project::path + "shaders/water/water.vert.glsl",
-	                  project::path + "shaders/mesh/mesh.frag.glsl");
+	                  project::path + "shaders/water/water.frag.glsl");
 	water.initialize_data_on_gpu(water_cpu, water_shader);
 	water.texture.load_and_initialize_texture_2d_on_gpu(project::path + "assets/sea.png");
 	water.material.texture_settings.active = false;
@@ -1167,6 +1179,7 @@ void scene_structure::display_frame()
 
 	uniform_generic_structure water_uniforms;
 	water_uniforms.uniform_float["time"] = t;
+	water_uniforms.uniform_vec3["camera_position"] = camera_control.camera_model.position();
 
 	if (gui.display_skybox) {
 		glDepthMask(GL_FALSE);

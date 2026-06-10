@@ -117,6 +117,11 @@ float water_height(float x, float y, float t)
     float r = sqrt(x * x + y * y);
     float boundary_freeze = 1.0 - smootherstep(98.0, 118.0, r);
 
+    // Elliptical distance around the island. gamma stretches the rings along X so
+    // they follow the island footprint better than circular waves.
+    float gamma = 1.5;
+    float d = sqrt((x / gamma) * (x / gamma) + y * y);
+
     vec2 p2 = vec2(x, y);
     vec2 dirs[5] = vec2[5](
         normalize(vec2(0.92, 0.38)),
@@ -130,24 +135,31 @@ float water_height(float x, float y, float t)
     float speed[5] = float[5](0.95, -1.25, 1.62, -1.92, 2.20);
     float phase[5] = float[5](0.4, 1.3, 2.1, 3.7, 5.2);
 
-    float wave = 0.0;
+    float offshore_wave = 0.0;
     for (int k = 0; k < 5; ++k) {
         float u = dot(dirs[k], p2);
-        wave += amp[k] * sin(freq[k] * u + speed[k] * t + phase[k]);
+        offshore_wave += amp[k] * sin(freq[k] * u + speed[k] * t + phase[k]);
     }
 
     float phi = 1.65 * dot(p2, normalize(vec2(0.61, -0.79))) - 2.05 * t + 0.8;
     float inverted = 1.0 - 2.0 * abs(sin(phi));
-    wave += 0.065 * inverted;
+    offshore_wave += 0.065 * inverted;
 
     float chop = sin(2.8 * phi + 0.9) * sin(1.3 * dot(p2, normalize(vec2(-0.88, 0.47))) - 1.5 * t);
-    wave += 0.028 * chop;
+    offshore_wave += 0.028 * chop;
 
-    float shore_d = abs(terrain_height(x, y) - sea_level);
-    float shore_boost = exp(-(shore_d * shore_d) / 0.11);
-    float shore_wave = 0.05 * shore_boost * sin(3.8 * dot(p2, normalize(vec2(0.86, 0.51))) - 3.1 * t);
+    // Inward concentric shore waves: beta*d + c*t makes a crest move toward
+    // smaller d as time increases.
+    float B = 0.08;
+    float beta = 3.5;
+    float c = 1.5;
+    float concentric_wave = B * cos(beta * d + c * t);
 
-    return sea_level + boundary_freeze * wave + shore_wave;
+    // Smooth transition to the existing offshore directional wave field.
+    float blend_to_offshore = smootherstep(18.0, 32.0, d);
+    float wave = mix(concentric_wave, offshore_wave, blend_to_offshore);
+
+    return sea_level + boundary_freeze * wave;
 }
 
 vec3 water_normal(vec2 p, float t)
