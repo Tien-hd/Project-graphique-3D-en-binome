@@ -132,22 +132,21 @@ bool extract_cubemap_cross_faces(image_structure const& cross, cubemap_cross_fac
 		return cross.subimage(tx * N, ty * N, (tx + 1) * N, (ty + 1) * N);
 	};
 
-	// Horizontal cross:      +Z
+	// Horizontal cross in project Z-up convention:
+	//                       +Z
 	//                   -X  +Y  +X  -Y
 	//                       -Z
+	// Rotation/mirror calls only fix each OpenGL cubemap face orientation.
 	if (horizontal_cross) {
-		faces.x_neg = tile(0, 1).rotate_90_degrees_counterclockwise();
-		faces.x_pos = tile(2, 1).rotate_90_degrees_clockwise();
-		faces.y_neg = tile(3, 1).rotate_90_degrees_clockwise().rotate_90_degrees_clockwise();
-		faces.y_pos = tile(1, 1);
+		faces.x_neg = tile(0, 1).rotate_90_degrees_counterclockwise().mirror_horizontal();
+		faces.x_pos = tile(2, 1).rotate_90_degrees_clockwise().mirror_horizontal();
+		faces.y_neg = tile(3, 1).rotate_90_degrees_clockwise().rotate_90_degrees_clockwise().mirror_vertical();
+		faces.y_pos = tile(1, 1).mirror_vertical();
 		faces.z_neg = tile(1, 2).mirror_horizontal();
 		faces.z_pos = tile(1, 0).mirror_vertical();
 	}
 
-	// Vertical cross:        +Y
-	//                   -X  +Z  +X
-	//                       -Y
-	//                       -Z
+	// Vertical cross fallback. The project assets use the horizontal form above.
 	if (vertical_cross) {
 		faces.x_neg = tile(0, 1);
 		faces.x_pos = tile(2, 1);
@@ -526,6 +525,11 @@ vec3 scene_structure::compute_sun_direction(float current_time_of_day)
 	    -0.25f * std::cos(sun_angle),
 	    std::cos(sun_angle)
 	});
+}
+
+vec3 scene_structure::compute_moon_direction(float)
+{
+	return normalize(-sun_direction + vec3{0.0f, 0.0f, 0.25f});
 }
 
 void scene_structure::initialize_terrain()
@@ -946,6 +950,12 @@ void scene_structure::initialize_particles()
 	sun_disc.material.color =  {1.0f, 0.92f, 0.45f};
 	sun_disc.material.phong = {1.0f, 0.0f, 0.0f, 1.0f};
 
+	moon_disc.initialize_data_on_gpu(mesh_primitive_disc(1.0f, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 64));
+	moon_disc.material.texture_settings.active = false;
+	moon_disc.material.texture_settings.two_sided = true;
+	moon_disc.material.color = {0.84f, 0.91f, 1.0f};
+	moon_disc.material.phong = {1.0f, 0.0f, 0.0f, 1.0f};
+
 	glow_orb.initialize_data_on_gpu(mesh_primitive_sphere(1.0f));
 	glow_orb.material.texture_settings.active = false;
 	glow_orb.material.color = {1.0f, 0.92f, 0.60f};
@@ -1200,7 +1210,7 @@ void scene_structure::update_day_night_cycle(float t)
 
 	// Keep skybox synchronized to the cycle without regenerating cubemap every frame
 	if (gui.use_textured_skybox && skybox_day_texture_loaded) {
-		skybox.alpha_color_blending = 0.10f * dusk_factor;
+		skybox.alpha_color_blending = (skybox_night_texture_loaded ? 0.03f : 0.10f) * dusk_factor;
 	}
 	else {
 		skybox.alpha_color_blending = 0.08f + 0.62f * night_factor + 0.20f * dusk_factor;
@@ -1556,58 +1566,84 @@ void scene_structure::draw_wind_streaks(float t)
 
 void scene_structure::draw_sky_elements(float t)
 {
-	if (!gui.display_sun_disc)
+	if (!gui.display_sun_disc && !gui.display_moon_disc)
 		return;
 
 	vec3 const camera_pos = camera_control.camera_model.position();
-	vec3 const sun_pos = camera_pos + sun_distance * sun_direction;
-	float const sun_visibility = saturate(1.0f - 1.35f * night_factor);
-	if (sun_visibility < 0.01f)
-		return;
-
-	vec3 const view_dir = normalize(camera_pos - sun_pos);
-	rotation_transform const R_billboard = rotation_transform::from_vector_transform({0.0f, 0.0f, 1.0f}, view_dir);
-	float const dusk_warmth = saturate(0.35f + 0.65f * dusk_factor);
 
 	glEnable(GL_BLEND);
-	// glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 	glDepthMask(GL_FALSE);
 
-	for (int k = 0; k < 3; ++k) {
-		float const pulse = 0.08f * std::sin(0.7f * t + 0.9f * k);
-		float const layer_scale = sun_size * (k == 0 ? 3.7f : (k == 1 ? 2.1f : 1.0f)) + pulse;
-		float const layer_alpha = sun_visibility * (k == 0 ? 0.08f : (k == 1 ? 0.18f : 0.95f));
+	if (gui.display_sun_disc) {
+		vec3 const sun_pos = camera_pos + sun_distance * sun_direction;
+		float const sun_visibility = saturate(1.0f - 1.35f * night_factor);
 
-		if (k < 2)
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE); // glow/halo
-		else
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); // core
+		if (sun_visibility >= 0.01f) {
+			vec3 const view_dir = normalize(camera_pos - sun_pos);
+			rotation_transform const R_billboard = rotation_transform::from_vector_transform({0.0f, 0.0f, 1.0f}, view_dir);
+			float const dusk_warmth = saturate(0.35f + 0.65f * dusk_factor);
 
-		sun_disc.material.alpha = layer_alpha;
-		
-		if (k == 2)
-			sun_disc.material.color = mix_color(vec3{1.0f, 0.93f, 0.62f}, vec3{1.0f, 0.98f, 0.86f}, 1.0f - dusk_factor);
-		else
-			sun_disc.material.color = mix_color(vec3{1.0f, 0.58f, 0.22f}, vec3{1.0f, 0.82f, 0.45f}, dusk_warmth);
+			for (int k = 0; k < 3; ++k) {
+				float const pulse = 0.08f * std::sin(0.7f * t + 0.9f * k);
+				float const layer_scale = sun_size * (k == 0 ? 3.7f : (k == 1 ? 2.1f : 1.0f)) + pulse;
+				float const layer_alpha = sun_visibility * (k == 0 ? 0.08f : (k == 1 ? 0.18f : 0.95f));
 
-		// if (k == 2)
-		// 	sun_disc.material.color = {1.0f, 0.97f, 0.72f};
-		// else
-		// 	sun_disc.material.color = {1.0f, 0.72f, 0.25f};
+				if (k < 2)
+					glBlendFunc(GL_SRC_ALPHA, GL_ONE); // glow/halo
+				else
+					glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); // core
 
-		sun_disc.model.translation = sun_pos;
-		sun_disc.model.rotation = R_billboard;
-		sun_disc.model.scaling = layer_scale;
-		sun_disc.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+				sun_disc.material.alpha = layer_alpha;
+				if (k == 2)
+					sun_disc.material.color = mix_color(vec3{1.0f, 0.93f, 0.62f}, vec3{1.0f, 0.98f, 0.86f}, 1.0f - dusk_factor);
+				else
+					sun_disc.material.color = mix_color(vec3{1.0f, 0.58f, 0.22f}, vec3{1.0f, 0.82f, 0.45f}, dusk_warmth);
 
-		draw(sun_disc, environment);
+				sun_disc.model.translation = sun_pos;
+				sun_disc.model.rotation = R_billboard;
+				sun_disc.model.scaling = layer_scale;
+				sun_disc.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+				draw(sun_disc, environment);
+			}
+		}
+	}
+
+	if (gui.display_moon_disc) {
+		vec3 const moon_direction = compute_moon_direction(time_of_day);
+		vec3 const moon_pos = camera_pos + moon_distance * moon_direction;
+		float const moon_visibility = moon_opacity * saturate((night_factor - 0.25f) / 0.75f);
+
+		if (moon_visibility >= 0.01f) {
+			vec3 const view_dir = normalize(camera_pos - moon_pos);
+			rotation_transform const R_billboard = rotation_transform::from_vector_transform({0.0f, 0.0f, 1.0f}, view_dir);
+
+			for (int k = 0; k < 3; ++k) {
+				float const pulse = 0.04f * std::sin(0.55f * t + 0.6f * k);
+				float const layer_scale = moon_size * (k == 0 ? 3.0f : (k == 1 ? 1.75f : 1.0f)) + pulse;
+				float const layer_alpha = moon_visibility * (k == 0 ? 0.09f : (k == 1 ? 0.18f : 0.82f));
+
+				if (k < 2)
+					glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+				else
+					glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+				moon_disc.material.alpha = layer_alpha;
+				moon_disc.material.color = (k == 2) ? vec3{0.86f, 0.93f, 1.0f} : vec3{0.42f, 0.62f, 1.0f};
+				moon_disc.model.translation = moon_pos;
+				moon_disc.model.rotation = R_billboard;
+				moon_disc.model.scaling = layer_scale;
+				moon_disc.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+				draw(moon_disc, environment);
+			}
+		}
 	}
 
 	glDepthMask(GL_TRUE);
 	glDisable(GL_BLEND);
 	sun_disc.material.alpha = 1.0f;
 	sun_disc.material.color = {1.0f, 0.88f, 0.52f};
+	moon_disc.material.alpha = 1.0f;
+	moon_disc.material.color = {0.84f, 0.91f, 1.0f};
 }
 
 void scene_structure::initialize()
@@ -1747,6 +1783,10 @@ void scene_structure::display_gui()
 	ImGui::Checkbox("Sun disc", &gui.display_sun_disc);
 	ImGui::SliderFloat("Sun distance", &sun_distance, 2.0f, 300.0f);
 	ImGui::SliderFloat("Sun size", &sun_size, 1.0f, 20.0f);
+	ImGui::Checkbox("Moon disc", &gui.display_moon_disc);
+	ImGui::SliderFloat("Moon distance", &moon_distance, 50.0f, 300.0f);
+	ImGui::SliderFloat("Moon size", &moon_size, 0.5f, 12.0f);
+	ImGui::SliderFloat("Moon opacity", &moon_opacity, 0.0f, 1.0f);
 	ImGui::SliderFloat("Wind", &gui.wind, 0.0f, 2.0f);
 	ImGui::Checkbox("Clouds", &gui.display_clouds);
 	ImGui::SliderFloat("Cloud speed", &cloud_speed, 0.0f, 6.0f);

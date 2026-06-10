@@ -20,6 +20,7 @@ struct gui_parameters {
 	bool display_lighthouse_beam = true;
 	bool moving_sun = true;
 	bool display_sun_disc = true;
+	bool display_moon_disc = true;
 	bool display_clouds = true;
 	bool display_wind_streaks = true;
 	bool use_textured_skybox = true;
@@ -116,6 +117,9 @@ struct scene_structure : cgp::scene_inputs_generic {
 	float sun_distance = 160.0f;
 	float sun_size = 2.3f;
 	cgp::vec3 sun_direction = {0.52f, -0.28f, 0.81f};
+	float moon_distance = 165.0f;
+	float moon_size = 2.0f;
+	float moon_opacity = 0.78f;
 	float cloud_speed = 1.8f;
 	float wind_streak_opacity = 0.22f;
 	float wind_streak_speed = 3.0f;
@@ -162,6 +166,7 @@ struct scene_structure : cgp::scene_inputs_generic {
 
 	mesh_drawable glow_orb;
 	mesh_drawable sun_disc;
+	mesh_drawable moon_disc;
 
 	std::vector<palm_instance> palms;
 	cgp::numarray<cgp::vec4> palm_instance_position_scale;
@@ -206,6 +211,7 @@ struct scene_structure : cgp::scene_inputs_generic {
 	void initialize_cloud_instance_buffers();
 	void update_cloud_instance_buffers(float t, cgp::vec3 const& camera_pos);
 	cgp::vec3 compute_sun_direction(float time_of_day);
+	cgp::vec3 compute_moon_direction(float time_of_day);
 	void update_day_night_cycle(float t);
 	void initialize_bird_instance_buffers();
 	void update_bird_instance_buffers(float t);
