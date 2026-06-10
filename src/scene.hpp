@@ -20,6 +20,8 @@ struct gui_parameters {
 	bool display_lighthouse_beam = true;
 	bool moving_sun = true;
 	bool display_sun_disc = true;
+	bool display_clouds = true;
+	bool display_wind_streaks = true;
 	float wind = 1.0f;
 };
 
@@ -59,6 +61,21 @@ struct glow_instance {
 	float phase = 0.0f;
 };
 
+struct cloud_instance {
+	cgp::vec3 center;
+	float scale = 1.0f;
+	float phase = 0.0f;
+	float spin = 0.0f;
+};
+
+struct wind_streak_instance {
+	cgp::vec3 center;
+	float length = 1.0f;
+	float width = 1.0f;
+	float phase = 0.0f;
+	float bend = 1.0f;
+};
+
 struct scene_structure : cgp::scene_inputs_generic {
 	void initialize();
 	void display_frame();
@@ -96,6 +113,9 @@ struct scene_structure : cgp::scene_inputs_generic {
 	float sun_distance = 20.0f;
 	float sun_size = 2.3f;
 	cgp::vec3 sun_direction = {0.52f, -0.28f, 0.81f};
+	float cloud_speed = 1.8f;
+	float wind_streak_opacity = 0.22f;
+	float wind_streak_speed = 3.0f;
 
 	mesh island_cpu;
 	mesh water_cpu;
@@ -124,9 +144,12 @@ struct scene_structure : cgp::scene_inputs_generic {
 	bool shrub_instance_buffers_initialized = false;
 	bool foam_instance_buffers_initialized = false;
 	bool bird_instance_buffers_initialized = false;
+	bool cloud_instance_buffers_initialized = false;
 
 	mesh_drawable shrub_billboard;
 	mesh_drawable foam_billboard;
+	mesh_drawable cloud_billboard;
+	mesh_drawable wind_streak_ribbon;
 
 	mesh_drawable bird_body;
 	mesh_drawable bird_wing;
@@ -145,6 +168,10 @@ struct scene_structure : cgp::scene_inputs_generic {
 	cgp::numarray<cgp::vec4> foam_instance_position_scale;
 	cgp::numarray<cgp::vec4> foam_instance_rotation_alpha;
 	std::vector<glow_instance> glows;
+	std::vector<cloud_instance> clouds;
+	cgp::numarray<cgp::vec4> cloud_instance_position_scale;
+	cgp::numarray<cgp::vec4> cloud_instance_rotation_alpha;
+	std::vector<wind_streak_instance> wind_streaks;
 	cgp::numarray<cgp::vec4> bird_body_position_scale;
 	cgp::numarray<cgp::vec4> bird_body_rotation;
 
@@ -164,11 +191,14 @@ struct scene_structure : cgp::scene_inputs_generic {
 	void initialize_vegetation();
 	void initialize_fauna();
 	void initialize_particles();
+	void initialize_weather_effects();
 	void initialize_palm_instance_buffers();
 	void update_palm_instance_rotation_buffer(float t);
 	void initialize_shrub_instance_buffers();
 	void initialize_foam_instance_buffers();
 	void update_foam_instance_buffers(float t, cgp::vec3 const& camera_pos);
+	void initialize_cloud_instance_buffers();
+	void update_cloud_instance_buffers(float t, cgp::vec3 const& camera_pos);
 	cgp::vec3 compute_sun_direction(float time_of_day);
 	void update_day_night_cycle(float t);
 	void initialize_bird_instance_buffers();
@@ -179,6 +209,8 @@ struct scene_structure : cgp::scene_inputs_generic {
 	void draw_fauna(float t);
 	void draw_foam(float t);
 	void draw_glows(float t);
+	void draw_clouds(float t);
+	void draw_wind_streaks(float t);
 	void draw_lighthouse_beam_effect(float t, cgp::vec3 const& lighthouse_pos);
 	cgp::vec3 lighthouse_world_position() const;
 	void draw_sky_elements(float t);

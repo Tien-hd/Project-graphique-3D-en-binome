@@ -195,6 +195,82 @@ mesh make_lighthouse_beam_frustum(float radius_near, float radius_far, float len
 	shape.fill_empty_field();
 	return shape;
 }
+
+vec2 wind_direction_xy()
+{
+	return normalize(vec2{0.92f, 0.38f});
+}
+
+float wrap_coordinate(float x, float bound)
+{
+	float const width = 2.0f * bound;
+	while (x > bound)
+		x -= width;
+	while (x < -bound)
+		x += width;
+	return x;
+}
+
+mesh make_cloud_billboard_mesh()
+{
+	mesh shape;
+
+	auto add_lobe = [&shape](float cx, float cz, float sx, float sz, vec3 const& color) {
+		unsigned int const offset = static_cast<unsigned int>(shape.position.size());
+		shape.position.push_back({cx - sx, 0.0f, cz - sz});
+		shape.position.push_back({cx + sx, 0.0f, cz - sz});
+		shape.position.push_back({cx + sx, 0.0f, cz + sz});
+		shape.position.push_back({cx - sx, 0.0f, cz + sz});
+		for (int k = 0; k < 4; ++k) {
+			shape.normal.push_back({0.0f, -1.0f, 0.0f});
+			shape.color.push_back(color);
+			shape.uv.push_back({0.0f, 0.0f});
+		}
+		shape.connectivity.push_back({offset + 0, offset + 1, offset + 2});
+		shape.connectivity.push_back({offset + 0, offset + 2, offset + 3});
+		shape.connectivity.push_back({offset + 0, offset + 2, offset + 1});
+		shape.connectivity.push_back({offset + 0, offset + 3, offset + 2});
+	};
+
+	add_lobe(-0.38f, 0.00f, 0.48f, 0.16f, {0.92f, 0.95f, 0.98f});
+	add_lobe(0.00f, 0.06f, 0.55f, 0.22f, {0.98f, 0.99f, 1.00f});
+	add_lobe(0.42f, 0.01f, 0.45f, 0.17f, {0.90f, 0.94f, 0.98f});
+	add_lobe(-0.05f, -0.12f, 0.72f, 0.13f, {0.86f, 0.91f, 0.96f});
+
+	shape.fill_empty_field();
+	return shape;
+}
+
+mesh make_wind_streak_ribbon_mesh()
+{
+	mesh shape;
+	int const N = 18;
+	float const half_width = 0.025f;
+	for (int k = 0; k < N; ++k) {
+		float const u = k / float(N - 1);
+		float const x = -0.5f + u;
+		float const curve = 0.09f * std::sin(2.0f * Pi * u);
+		float const fade = std::sin(Pi * u);
+		float const w = half_width * (0.30f + 0.70f * fade);
+
+		shape.position.push_back({x, curve - w, 0.0f});
+		shape.position.push_back({x, curve + w, 0.0f});
+		shape.normal.push_back({0.0f, 0.0f, 1.0f});
+		shape.normal.push_back({0.0f, 0.0f, 1.0f});
+		shape.color.push_back({1.0f, 1.0f, 1.0f});
+		shape.color.push_back({1.0f, 1.0f, 1.0f});
+		shape.uv.push_back({u, 0.0f});
+		shape.uv.push_back({u, 1.0f});
+	}
+
+	for (int k = 0; k < N - 1; ++k) {
+		unsigned int const i = static_cast<unsigned int>(2 * k);
+		shape.connectivity.push_back({i, i + 1, i + 3});
+		shape.connectivity.push_back({i, i + 3, i + 2});
+	}
+	shape.fill_empty_field();
+	return shape;
+}
 }
 
 float scene_structure::terrain_height(float x, float y) const
@@ -717,6 +793,45 @@ void scene_structure::initialize_particles()
 	}
 }
 
+void scene_structure::initialize_weather_effects()
+{
+	cloud_billboard.initialize_data_on_gpu(make_cloud_billboard_mesh());
+	cloud_billboard.material.texture_settings.active = false;
+	cloud_billboard.material.texture_settings.two_sided = true;
+	cloud_billboard.material.color = {1.0f, 1.0f, 1.0f};
+	cloud_billboard.material.alpha = 1.0f;
+	cloud_billboard.material.phong = {0.72f, 0.18f, 0.01f, 4.0f};
+
+	wind_streak_ribbon.initialize_data_on_gpu(make_wind_streak_ribbon_mesh());
+	wind_streak_ribbon.material.texture_settings.active = false;
+	wind_streak_ribbon.material.texture_settings.two_sided = true;
+	wind_streak_ribbon.material.color = {1.0f, 1.0f, 1.0f};
+	wind_streak_ribbon.material.alpha = 0.18f;
+	wind_streak_ribbon.material.phong = {0.95f, 0.04f, 0.0f, 4.0f};
+
+	clouds.clear();
+	for (int k = 0; k < 9; ++k) {
+		clouds.push_back({
+		    {rand_uniform(-48.0f, 48.0f), rand_uniform(-42.0f, 42.0f), rand_uniform(10.5f, 17.5f)},
+		    rand_uniform(3.2f, 6.8f),
+		    rand_uniform(0.0f, 12.0f),
+		    rand_uniform(-0.18f, 0.18f),
+		});
+	}
+	initialize_cloud_instance_buffers();
+
+	wind_streaks.clear();
+	for (int k = 0; k < 14; ++k) {
+		wind_streaks.push_back({
+		    {rand_uniform(-44.0f, 44.0f), rand_uniform(-36.0f, 36.0f), rand_uniform(8.0f, 15.5f)},
+		    rand_uniform(5.5f, 10.5f),
+		    rand_uniform(0.75f, 1.35f),
+		    rand_uniform(0.0f, 10.0f),
+		    rand_uniform(0.75f, 1.25f),
+		});
+	}
+}
+
 void scene_structure::initialize_foam_instance_buffers()
 {
 	foam_instance_buffers_initialized = false;
@@ -733,6 +848,61 @@ void scene_structure::initialize_foam_instance_buffers()
 	foam_billboard.initialize_supplementary_data_on_gpu(foam_instance_position_scale, 4, 1);
 	foam_billboard.initialize_supplementary_data_on_gpu(foam_instance_rotation_alpha, 5, 1);
 	foam_instance_buffers_initialized = true;
+}
+
+void scene_structure::initialize_cloud_instance_buffers()
+{
+	cloud_instance_buffers_initialized = false;
+	cloud_instance_position_scale.clear();
+	cloud_instance_rotation_alpha.clear();
+
+	if (clouds.empty())
+		return;
+
+	cloud_instance_position_scale.resize(static_cast<int>(clouds.size()));
+	cloud_instance_rotation_alpha.resize(static_cast<int>(clouds.size()));
+	update_cloud_instance_buffers(0.0f, camera_control.camera_model.position());
+
+	cloud_billboard.initialize_supplementary_data_on_gpu(cloud_instance_position_scale, 4, 1);
+	cloud_billboard.initialize_supplementary_data_on_gpu(cloud_instance_rotation_alpha, 5, 1);
+	cloud_instance_buffers_initialized = true;
+}
+
+void scene_structure::update_cloud_instance_buffers(float t, vec3 const& camera_pos)
+{
+	if (clouds.empty())
+		return;
+
+	if (cloud_instance_position_scale.size() != static_cast<int>(clouds.size()))
+		cloud_instance_position_scale.resize(static_cast<int>(clouds.size()));
+	if (cloud_instance_rotation_alpha.size() != static_cast<int>(clouds.size()))
+		cloud_instance_rotation_alpha.resize(static_cast<int>(clouds.size()));
+
+	vec2 const wind_dir = wind_direction_xy();
+	float const travel = t * cloud_speed * (0.20f + gui.wind);
+
+	std::vector<transparent_instance> sorted_clouds;
+	sorted_clouds.reserve(clouds.size());
+	for (int k = 0; k < static_cast<int>(clouds.size()); ++k) {
+		cloud_instance const& c = clouds[k];
+		vec3 pos = c.center + vec3{wind_dir.x, wind_dir.y, 0.0f} * (travel + 9.0f * c.phase);
+		pos.x = wrap_coordinate(pos.x, 56.0f);
+		pos.y = wrap_coordinate(pos.y, 48.0f);
+
+		float const pulse = 0.5f + 0.5f * std::sin(0.45f * t + c.phase);
+		float const daylight = 0.42f + 0.58f * (1.0f - night_factor);
+		sorted_clouds.push_back({k, distance_squared(camera_pos, pos), pos, daylight * (0.24f + 0.10f * pulse)});
+	}
+
+	std::sort(sorted_clouds.begin(), sorted_clouds.end(),
+	          [](transparent_instance const& a, transparent_instance const& b) { return a.distance2 > b.distance2; });
+
+	for (int k = 0; k < static_cast<int>(sorted_clouds.size()); ++k) {
+		transparent_instance const& instance = sorted_clouds[k];
+		cloud_instance const& c = clouds[instance.index];
+		cloud_instance_position_scale[k] = {instance.position.x, instance.position.y, instance.position.z, c.scale};
+		cloud_instance_rotation_alpha[k] = {c.spin, instance.alpha, 0.0f, 0.0f};
+	}
 }
 
 void scene_structure::update_foam_instance_buffers(float t, vec3 const& camera_pos)
@@ -1097,6 +1267,66 @@ void scene_structure::draw_glows(float t)
 	glDisable(GL_BLEND);
 }
 
+void scene_structure::draw_clouds(float t)
+{
+	if (!gui.display_clouds || !cloud_instance_buffers_initialized)
+		return;
+
+	vec3 const camera_pos = camera_control.camera_model.position();
+	update_cloud_instance_buffers(t, camera_pos);
+	cloud_billboard.update_supplementary_data_on_gpu(cloud_instance_position_scale, 4, static_cast<int>(clouds.size()));
+	cloud_billboard.update_supplementary_data_on_gpu(cloud_instance_rotation_alpha, 5, static_cast<int>(clouds.size()));
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glDepthMask(GL_FALSE);
+
+	cloud_billboard.model.translation = {0.0f, 0.0f, 0.0f};
+	cloud_billboard.model.rotation = rotation_transform();
+	cloud_billboard.model.scaling = 1.0f;
+	cloud_billboard.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+
+	uniform_generic_structure cloud_uniforms;
+	cloud_uniforms.uniform_int["instancing_mode"] = 2;
+	draw(cloud_billboard, environment, static_cast<int>(clouds.size()), true, cloud_uniforms);
+
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
+}
+
+void scene_structure::draw_wind_streaks(float t)
+{
+	if (!gui.display_wind_streaks || wind_streaks.empty())
+		return;
+
+	vec2 const wind_dir = wind_direction_xy();
+	float const heading = std::atan2(wind_dir.y, wind_dir.x);
+	float const travel = t * wind_streak_speed * (0.15f + gui.wind);
+	float const daylight = 0.35f + 0.65f * (1.0f - night_factor);
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glDepthMask(GL_FALSE);
+
+	for (wind_streak_instance const& s : wind_streaks) {
+		vec3 pos = s.center + vec3{wind_dir.x, wind_dir.y, 0.0f} * (travel + 7.0f * s.phase);
+		pos.x = wrap_coordinate(pos.x, 54.0f);
+		pos.y = wrap_coordinate(pos.y, 44.0f);
+
+		float const pulse = 0.5f + 0.5f * std::sin(0.9f * t + s.phase);
+		wind_streak_ribbon.material.alpha = wind_streak_opacity * daylight * (0.35f + 0.65f * pulse);
+		wind_streak_ribbon.model.translation = pos;
+		wind_streak_ribbon.model.rotation = rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, heading);
+		wind_streak_ribbon.model.scaling = 1.0f;
+		wind_streak_ribbon.model.scaling_xyz = {s.length, s.width * s.bend, 1.0f};
+		draw(wind_streak_ribbon, environment);
+	}
+
+	wind_streak_ribbon.material.alpha = 0.18f;
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
+}
+
 void scene_structure::draw_sky_elements(float t)
 {
 	if (!gui.display_sun_disc || gui.display_skybox)
@@ -1157,6 +1387,7 @@ void scene_structure::initialize()
 	initialize_vegetation();
 	initialize_fauna();
 	initialize_particles();
+	initialize_weather_effects();
 
 	environment.background_color = ocean_far_tint();
 	gui.display_frame = false;
@@ -1192,6 +1423,8 @@ void scene_structure::display_frame()
 	draw_structures(t);
 	draw_vegetation(t);
 	draw_fauna(t);
+	draw_clouds(t);
+	draw_wind_streaks(t);
 
 	vec3 const camera_pos = camera_control.camera_model.position();
 	std::vector<transparent_draw_call> transparent_passes;
@@ -1258,6 +1491,11 @@ void scene_structure::display_gui()
 	ImGui::SliderFloat("Sun distance", &sun_distance, 50.0f, 300.0f);
 	ImGui::SliderFloat("Sun size", &sun_size, 1.0f, 20.0f);
 	ImGui::SliderFloat("Wind", &gui.wind, 0.0f, 2.0f);
+	ImGui::Checkbox("Clouds", &gui.display_clouds);
+	ImGui::SliderFloat("Cloud speed", &cloud_speed, 0.0f, 6.0f);
+	ImGui::Checkbox("Wind streaks", &gui.display_wind_streaks);
+	ImGui::SliderFloat("Wind streak opacity", &wind_streak_opacity, 0.0f, 0.6f);
+	ImGui::SliderFloat("Wind streak speed", &wind_streak_speed, 0.0f, 8.0f);
 	ImGui::Checkbox("Water", &gui.display_water);
 	ImGui::Checkbox("Vegetation", &gui.display_vegetation);
 	ImGui::Checkbox("Fauna", &gui.display_fauna);
