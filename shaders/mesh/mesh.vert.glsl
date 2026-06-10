@@ -27,6 +27,19 @@ uniform mat4 projection; // Projection (perspective or orthogonal) matrix of the
 uniform int use_instancing;
 uniform int instancing_mode; // 0: regular instanced mesh, 1: shrub billboard, 2: foam billboard
 
+vec3 rotation_y(vec3 p, float a)
+{
+    float c = cos(a);
+    float s = sin(a);
+    return vec3(c*p.x + s*p.z, p.y, -s*p.x + c*p.z);
+}
+
+vec3 rotation_z(vec3 p, float a)
+{
+    float c = cos(a);
+    float s = sin(a);
+    return vec3(c*p.x - s*p.y, s*p.x + c*p.y, p.z);
+}
 
 vec3 rotate_y_then_z(vec3 p, float yaw, float sway, float pitch)
 {	
@@ -80,10 +93,38 @@ void main()
 				alpha = instance_rotation.y;
 			}
 		}
+
+		else if (instancing_mode == 3)
+		{
+			float heading = instance_rotation.x;
+			float flap    = instance_rotation.y;
+			float pivot_x = instance_rotation.w;
+
+			vec3 pivot = vec3(pivot_x, 0.0, 0.0);
+
+			vec3 p = vertex_position;
+
+			p = p - pivot;
+			p = rotation_y(p, flap);
+			p = p + pivot;
+
+			p = rotation_z(p, heading);
+
+			position = model * vec4(
+				instance_position_scale.xyz + instance_position_scale.w * p,
+				1.0
+			);
+
+			vec3 n = vertex_normal;
+			n = rotation_y(n, flap);
+			n = rotation_z(n, heading);
+
+			normal = modelNormal * vec4(n, 0.0);
+		}
+
 		else {
-			// Get pivot_offset from instance_rotation.w
-			float pivot_z = instance_rotation.w;  
-			vec3 pivot = vec3(0.0, 0.0, pivot_z);
+			float pivot_offset = instance_rotation.w;
+			vec3 pivot = vec3(0.0, 0.0, pivot_offset);
 			vec3 to_pivot = vertex_position - pivot;
 			vec3 rotated_position = rotate_y_then_z(to_pivot, instance_rotation.x, instance_rotation.y, instance_rotation.z);
 			vec3 final_position = rotated_position + pivot;
