@@ -980,11 +980,14 @@ void scene_structure::initialize_particles()
 	moon_disc.material.color = {0.84f, 0.91f, 1.0f};
 	moon_disc.material.phong = {1.0f, 0.0f, 0.0f, 1.0f};
 
-	glow_orb.initialize_data_on_gpu(mesh_primitive_sphere(1.0f));
+	// Load glow shader (thêm dòng này nếu chưa có)
+	glow_shader.load(project::path + "shaders/glow/glow.vert.glsl",
+					project::path + "shaders/glow/glow.frag.glsl");
+	glow_orb.initialize_data_on_gpu(mesh_primitive_sphere(1.0f), glow_shader);
 	glow_orb.material.texture_settings.active = false;
-	glow_orb.material.color = {1.0f, 0.92f, 0.60f};
-	glow_orb.material.alpha = 0.35f;
-	glow_orb.material.phong = {0.55f, 0.18f, 0.12f, 6.0f};
+	glow_orb.material.color = {1.0f, 0.88f, 0.42f};
+	glow_orb.material.alpha = 1.0f;
+	glow_orb.material.phong = {1.0f, 0.0f, 0.0f, 1.0f};
 
 	foams.clear();
 	for (int k = 0; k < 420; ++k) {
@@ -1011,13 +1014,13 @@ void scene_structure::initialize_particles()
 			continue;
 
 		glows.push_back({
-		    {x, y, z},
-		    rand_uniform(0.025f, 0.070f),
-		    rand_uniform(0.10f, 0.35f),
-		    rand_uniform(0.9f, 1.4f),
-		    rand_uniform(0.0f, 10.0f),
+			{x, y, z},
+			rand_uniform(0.045f, 0.105f),  // radius lớn hơn
+			rand_uniform(0.10f, 0.35f),
+			rand_uniform(0.9f, 1.4f),
+			rand_uniform(0.0f, 10.0f),
 		});
-	}
+			}
 }
 
 void scene_structure::initialize_weather_effects()
@@ -1488,43 +1491,46 @@ void scene_structure::draw_foam(float t)
 
 void scene_structure::draw_glows(float t)
 {
-	if (!gui.display_vegetation)
-		return;
+    if (!gui.display_vegetation)
+        return;
 
-	vec3 const camera_pos = camera_control.camera_model.position();
-	std::vector<transparent_instance> sorted_glows;
-	sorted_glows.reserve(glows.size());
-	for (int k = 0; k < static_cast<int>(glows.size()); ++k) {
-		glow_instance const& g = glows[k];
-		vec3 p = g.center;
-		p.x += 0.16f * std::sin(0.9f * t + g.phase);
-		p.y += 0.16f * std::cos(1.1f * t + g.phase);
-		p.z += g.rise * (0.5f + 0.5f * std::sin(1.6f * t + g.phase));
+    vec3 const camera_pos = camera_control.camera_model.position();
+    std::vector<transparent_instance> sorted_glows;
+    sorted_glows.reserve(glows.size());
+    for (int k = 0; k < static_cast<int>(glows.size()); ++k) {
+        glow_instance const& g = glows[k];
+        vec3 p = g.center;
+        p.x += 0.16f * std::sin(0.9f * t + g.phase);
+        p.y += 0.16f * std::cos(1.1f * t + g.phase);
+        p.z += g.rise * (0.5f + 0.5f * std::sin(1.6f * t + g.phase));
 
-		float const pulse = 0.45f + 0.55f * std::sin(2.3f * t + g.phase);
-		sorted_glows.push_back({k, distance_squared(camera_pos, p), p, 0.08f + 0.28f * pulse});
-	}
+        float const pulse = 0.45f + 0.55f * std::sin(2.3f * t + g.phase);
+        sorted_glows.push_back({k, distance_squared(camera_pos, p), p, 0.16f + 0.42f *pulse});
+    }
 
-	std::sort(sorted_glows.begin(), sorted_glows.end(),
-	          [](transparent_instance const& a, transparent_instance const& b) { return a.distance2 > b.distance2; });
+    std::sort(sorted_glows.begin(), sorted_glows.end(),
+              [](transparent_instance const& a, transparent_instance const& b) { return a.distance2 > b.distance2; });
 
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);  // Đổi từ ONE_MINUS_SRC_ALPHA thành GL_ONE
+    glDepthMask(GL_FALSE);
 
-	for (transparent_instance const& instance : sorted_glows) {
-		glow_instance const& g = glows[instance.index];
-		glow_orb.material.alpha = instance.alpha;
+    for (transparent_instance const& instance : sorted_glows) {
+        glow_instance const& g = glows[instance.index];
+        uniform_generic_structure glow_uniforms;
+        glow_uniforms.uniform_vec3["glow_color"] = {1.0f, 0.78f, 0.28f};
+        glow_uniforms.uniform_float["glow_alpha"] = instance.alpha;  // Dùng uniform thay vì material.alpha
 
-		glow_orb.model.translation = instance.position;
-		glow_orb.model.rotation = rotation_transform();
-		glow_orb.model.scaling = g.radius;
-		glow_orb.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
-		draw(glow_orb, environment);
-	}
+        glow_orb.model.translation = instance.position;
+        glow_orb.model.rotation = rotation_transform();
+        glow_orb.model.scaling = g.radius;
+        glow_orb.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+        draw(glow_orb, environment, 1, false, glow_uniforms);  // Thêm uniforms
+    }
 
-	glDepthMask(GL_TRUE);
-	glDisable(GL_BLEND);
+    glDepthMask(GL_TRUE);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDisable(GL_BLEND);
 }
 
 void scene_structure::draw_clouds(float t)

@@ -142,7 +142,7 @@ struct scene_structure : cgp::scene_inputs_generic {
 	mesh_drawable lighthouse_beam;
 	mesh_drawable lighthouse_bulb;
 	cgp::opengl_shader_structure lighthouse_beam_shader;
-
+	cgp::opengl_shader_structure glow_shader;
 	mesh_drawable dock_plank;
 	mesh_drawable dock_pile;
 
