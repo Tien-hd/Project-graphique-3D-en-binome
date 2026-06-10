@@ -449,18 +449,42 @@ mesh make_wind_streak_ribbon_mesh()
 
 float scene_structure::terrain_height(float x, float y) const
 {
-	float const r2 = x * x + y * y;
-	float h = -3.8f;
-	h += 7.1f * std::exp(-r2 / 115.0f);
-	h += 1.8f * std::exp(-((x - 2.0f) * (x - 2.0f) + (y + 0.8f) * (y + 0.8f)) / 42.0f);
-	h += 0.55f * noise_perlin({0.18f * x, 0.18f * y}) * std::exp(-r2 / 250.0f);
-	h += 0.16f * noise_perlin({0.95f * x + 1.7f, 0.95f * y - 2.2f});
+    float h = -3.8f;
 
-	float const r = std::sqrt(r2);
-	if (r > island_radius + 3.0f)
-		h -= 0.45f * (r - island_radius - 3.0f);
+    std::vector<vec2> centers = {
+        {0.0f, 0.0f},
+        {10.0f, 6.0f},
+        {-12.0f, 4.0f}
+    };
 
-	return h;
+    std::vector<float> heights = {
+        7.1f,
+        3.6f,
+        2.3f
+    };
+
+    std::vector<float> sigmas = {
+        12.5f,
+        6.0f,
+        4.5f
+    };
+
+    for (int i = 0; i < 3; ++i) {
+        float dx = x - centers[i].x;
+        float dy = y - centers[i].y;
+        h += heights[i] * std::exp(-(dx * dx + dy * dy) / (sigmas[i] * sigmas[i]));
+    }
+
+    float const r2 = x * x + y * y;
+    float const r = std::sqrt(r2);
+
+    h += 0.55f * noise_perlin({0.18f * x, 0.18f * y}) * std::exp(-r2 / 250.0f);
+    h += 0.16f * noise_perlin({0.95f * x + 1.7f, 0.95f * y - 2.2f});
+
+    if (r > island_radius + 3.0f)
+        h -= 0.45f * (r - island_radius - 3.0f);
+
+    return h;
 }
 
 float scene_structure::water_height(float x, float y, float t) const
