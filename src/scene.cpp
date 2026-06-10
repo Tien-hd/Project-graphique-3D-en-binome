@@ -800,13 +800,13 @@ void scene_structure::initialize_weather_effects()
 	cloud_billboard.material.texture_settings.two_sided = true;
 	cloud_billboard.material.color = {1.0f, 1.0f, 1.0f};
 	cloud_billboard.material.alpha = 1.0f;
-	cloud_billboard.material.phong = {0.72f, 0.18f, 0.01f, 4.0f};
+	cloud_billboard.material.phong = {1.0f, 0.05f, 0.0f, 1.0f};
 
 	wind_streak_ribbon.initialize_data_on_gpu(make_wind_streak_ribbon_mesh());
 	wind_streak_ribbon.material.texture_settings.active = false;
 	wind_streak_ribbon.material.texture_settings.two_sided = true;
 	wind_streak_ribbon.material.color = {1.0f, 1.0f, 1.0f};
-	wind_streak_ribbon.material.alpha = 0.18f;
+	wind_streak_ribbon.material.alpha = 0.45f;
 	wind_streak_ribbon.material.phong = {0.95f, 0.04f, 0.0f, 4.0f};
 
 	clouds.clear();
@@ -821,13 +821,39 @@ void scene_structure::initialize_weather_effects()
 	initialize_cloud_instance_buffers();
 
 	wind_streaks.clear();
-	for (int k = 0; k < 14; ++k) {
+
+	int const N_base_streaks = 14;
+	vec2 const wind_dir = wind_direction_xy();
+	vec3 const side = vec3{-wind_dir.y, wind_dir.x, 0.0f};
+
+	for (int k = 0; k < N_base_streaks; ++k) {
+		vec3 const base_pos = {
+			rand_uniform(-44.0f, 44.0f),
+			rand_uniform(-36.0f, 36.0f),
+			rand_uniform(8.0f, 15.5f)
+		};
+
+		float const base_length = rand_uniform(10.0f, 18.0f);
+		float const base_width  = rand_uniform(1.4f, 2.4f);
+		float const base_phase  = rand_uniform(0.0f, 10.0f);
+		float const base_bend   = rand_uniform(0.75f, 1.25f);
+
+		float const offset = rand_uniform(0.1f, 0.2f);
+
 		wind_streaks.push_back({
-		    {rand_uniform(-44.0f, 44.0f), rand_uniform(-36.0f, 36.0f), rand_uniform(8.0f, 15.5f)},
-		    rand_uniform(5.5f, 10.5f),
-		    rand_uniform(0.75f, 1.35f),
-		    rand_uniform(0.0f, 10.0f),
-		    rand_uniform(0.75f, 1.25f),
+			base_pos - offset * side,
+			base_length,
+			base_width,
+			base_phase,
+			base_bend,
+		});
+
+		wind_streaks.push_back({
+			base_pos + offset * side,
+			base_length * rand_uniform(0.85f, 1.05f),
+			base_width * rand_uniform(0.75f, 0.95f),
+			base_phase + rand_uniform(0.4f, 1.2f),
+			base_bend * rand_uniform(0.90f, 1.10f),
 		});
 	}
 }
@@ -891,7 +917,7 @@ void scene_structure::update_cloud_instance_buffers(float t, vec3 const& camera_
 
 		float const pulse = 0.5f + 0.5f * std::sin(0.45f * t + c.phase);
 		float const daylight = 0.42f + 0.58f * (1.0f - night_factor);
-		sorted_clouds.push_back({k, distance_squared(camera_pos, pos), pos, daylight * (0.24f + 0.10f * pulse)});
+		sorted_clouds.push_back({k, distance_squared(camera_pos, pos), pos, daylight * (0.30f + 0.10f * pulse)});
 	}
 
 	std::sort(sorted_clouds.begin(), sorted_clouds.end(),
@@ -1314,7 +1340,8 @@ void scene_structure::draw_wind_streaks(float t)
 		pos.y = wrap_coordinate(pos.y, 44.0f);
 
 		float const pulse = 0.5f + 0.5f * std::sin(0.9f * t + s.phase);
-		wind_streak_ribbon.material.alpha = wind_streak_opacity * daylight * (0.35f + 0.65f * pulse);
+		// wind_streak_ribbon.material.alpha = wind_streak_opacity * daylight * (0.35f + 0.65f * pulse);
+		wind_streak_ribbon.material.alpha = wind_streak_opacity * daylight * (0.60f + 0.40f * pulse);
 		wind_streak_ribbon.model.translation = pos;
 		wind_streak_ribbon.model.rotation = rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, heading);
 		wind_streak_ribbon.model.scaling = 1.0f;
@@ -1322,7 +1349,7 @@ void scene_structure::draw_wind_streaks(float t)
 		draw(wind_streak_ribbon, environment);
 	}
 
-	wind_streak_ribbon.material.alpha = 0.18f;
+	wind_streak_ribbon.material.alpha = 0.45f;
 	glDepthMask(GL_TRUE);
 	glDisable(GL_BLEND);
 }
@@ -1488,13 +1515,13 @@ void scene_structure::display_gui()
 	ImGui::Checkbox("Skybox", &gui.display_skybox);
 	ImGui::Checkbox("Moving sun", &gui.moving_sun);
 	ImGui::Checkbox("Sun disc", &gui.display_sun_disc);
-	ImGui::SliderFloat("Sun distance", &sun_distance, 50.0f, 300.0f);
+	ImGui::SliderFloat("Sun distance", &sun_distance, 2.0f, 300.0f);
 	ImGui::SliderFloat("Sun size", &sun_size, 1.0f, 20.0f);
 	ImGui::SliderFloat("Wind", &gui.wind, 0.0f, 2.0f);
 	ImGui::Checkbox("Clouds", &gui.display_clouds);
 	ImGui::SliderFloat("Cloud speed", &cloud_speed, 0.0f, 6.0f);
 	ImGui::Checkbox("Wind streaks", &gui.display_wind_streaks);
-	ImGui::SliderFloat("Wind streak opacity", &wind_streak_opacity, 0.0f, 0.6f);
+	ImGui::SliderFloat("Wind streak opacity", &wind_streak_opacity, 0.0f, 1.0f);
 	ImGui::SliderFloat("Wind streak speed", &wind_streak_speed, 0.0f, 8.0f);
 	ImGui::Checkbox("Water", &gui.display_water);
 	ImGui::Checkbox("Vegetation", &gui.display_vegetation);
