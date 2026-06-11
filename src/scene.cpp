@@ -512,6 +512,32 @@ mesh create_wake_ellipse_mesh(int N = 48)
 	shape.fill_empty_field();
 	return shape;
 }
+
+mesh create_grass_billboard_mesh()
+{
+	mesh shape;
+	shape.position = {
+	    {-0.5f, 0.0f, 0.0f},
+	    { 0.5f, 0.0f, 0.0f},
+	    { 0.5f, 0.0f, 1.0f},
+	    {-0.5f, 0.0f, 1.0f},
+	};
+	shape.normal = {
+	    {0.0f, -1.0f, 0.0f},
+	    {0.0f, -1.0f, 0.0f},
+	    {0.0f, -1.0f, 0.0f},
+	    {0.0f, -1.0f, 0.0f},
+	};
+	shape.uv = {{0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 1.0f}};
+	shape.connectivity = {{0, 1, 2}, {0, 2, 3}};
+	shape.fill_empty_field();
+	return shape;
+}
+
+float fract(float x)
+{
+	return x - std::floor(x);
+}
 }
 
 float scene_structure::terrain_height(float x, float y) const
@@ -1265,6 +1291,60 @@ void scene_structure::initialize_character()
 	character_right_leg.material.phong = character_left_leg.material.phong;
 }
 
+void scene_structure::initialize_magic_effect()
+{
+	numarray<vec3> outer;
+	numarray<vec3> inner;
+	numarray<vec3> tri_a;
+	numarray<vec3> tri_b;
+
+	int const N = 128;
+	for (int k = 0; k <= N; ++k) {
+		float const u = 2.0f * Pi * k / float(N);
+		outer.push_back({std::cos(u), std::sin(u), 0.0f});
+		inner.push_back({0.65f * std::cos(u), 0.65f * std::sin(u), 0.0f});
+	}
+
+	for (int k = 0; k <= 3; ++k) {
+		float const u = 2.0f * Pi * k / 3.0f;
+		tri_a.push_back({0.78f * std::cos(u), 0.78f * std::sin(u), 0.0f});
+	}
+	for (int k = 0; k <= 3; ++k) {
+		float const u = Pi / 3.0f + 2.0f * Pi * k / 3.0f;
+		tri_b.push_back({0.78f * std::cos(u), 0.78f * std::sin(u), 0.0f});
+	}
+
+	magic_outer_ring.initialize_data_on_gpu(outer);
+	magic_inner_ring.initialize_data_on_gpu(inner);
+	magic_triangle_a.initialize_data_on_gpu(tri_a);
+	magic_triangle_b.initialize_data_on_gpu(tri_b);
+	magic_outer_ring.color = {1.0f, 0.78f, 0.20f};
+	magic_inner_ring.color = {0.50f, 0.90f, 1.0f};
+	magic_triangle_a.color = {1.0f, 0.84f, 0.28f};
+	magic_triangle_b.color = {0.58f, 0.92f, 1.0f};
+
+	magic_cylinder.initialize_data_on_gpu(mesh_primitive_cylinder(1.0f, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 64, 8, false));
+	magic_cylinder.material.texture_settings.active = false;
+	magic_cylinder.material.texture_settings.two_sided = true;
+	magic_cylinder.material.color = {0.55f, 0.85f, 1.0f};
+	magic_cylinder.material.alpha = 0.18f;
+	magic_cylinder.material.phong = {0.85f, 0.05f, 0.0f, 4.0f};
+
+	magic_particle.initialize_data_on_gpu(mesh_primitive_sphere(1.0f));
+	magic_particle.material.texture_settings.active = false;
+	magic_particle.material.color = {0.72f, 0.95f, 1.0f};
+	magic_particle.material.alpha = 0.75f;
+	magic_particle.material.phong = {0.90f, 0.08f, 0.0f, 4.0f};
+
+	grass_billboard.initialize_data_on_gpu(create_grass_billboard_mesh());
+	grass_billboard.texture.load_and_initialize_texture_2d_on_gpu(project::path + "assets/grass.png");
+	grass_billboard.material.texture_settings.active = true;
+	grass_billboard.material.texture_settings.two_sided = true;
+	grass_billboard.material.color = {1.0f, 1.0f, 1.0f};
+	grass_billboard.material.alpha = 0.75f;
+	grass_billboard.material.phong = {0.35f, 0.25f, 0.05f, 8.0f};
+}
+
 void scene_structure::initialize_foam_instance_buffers()
 {
 	foam_instance_buffers_initialized = false;
@@ -1990,6 +2070,152 @@ void scene_structure::display_character()
 	draw(character_right_leg, environment);
 }
 
+void scene_structure::trigger_magic_effect()
+{
+	magic.active = true;
+	magic.start_time = timer.t;
+	magic.center = character.position;
+	magic.center.z = terrain_height(magic.center.x, magic.center.y) + 0.035f;
+
+	spawn_summoned_grass(magic.center, magic.radius);
+
+	if (has_summit_tree && distance_squared(magic.center, summit_tree_position) < magic.radius * magic.radius)
+		gui.display_summit_tree_foliage = true;
+}
+
+void scene_structure::update_magic_effect(float t)
+{
+	if (!magic.active)
+		return;
+
+	if (t - magic.start_time > magic.duration)
+		magic.active = false;
+}
+
+void scene_structure::spawn_summoned_grass(vec3 const& center, float radius)
+{
+	int const N = 48;
+	for (int k = 0; k < N; ++k) {
+		float const a = rand_uniform(0.0f, 2.0f * Pi);
+		float const r = radius * std::sqrt(rand_uniform(0.0f, 1.0f));
+		float const x = center.x + r * std::cos(a);
+		float const y = center.y + r * std::sin(a);
+		float const z = terrain_height(x, y);
+
+		if (z < sea_level + 0.15f)
+			continue;
+
+		summoned_grass.push_back({
+			{x, y, z + 0.015f},
+			rand_uniform(0.45f, 0.85f),
+			rand_uniform(0.0f, 2.0f * Pi),
+		});
+	}
+
+	if (summoned_grass.size() > 640)
+		summoned_grass.erase(summoned_grass.begin(), summoned_grass.begin() + (summoned_grass.size() - 640));
+}
+
+void scene_structure::display_summoned_grass()
+{
+	if (summoned_grass.empty())
+		return;
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glDepthMask(GL_FALSE);
+
+	for (grass_instance const& g : summoned_grass) {
+		for (int k = 0; k < 2; ++k) {
+			float const angle = g.angle + k * Pi / 2.0f;
+			grass_billboard.model.translation = g.position;
+			grass_billboard.model.rotation = rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, angle);
+			grass_billboard.model.scaling = 1.0f;
+			grass_billboard.model.scaling_xyz = {0.62f * g.scale, 1.0f, 1.18f * g.scale};
+			draw(grass_billboard, environment);
+		}
+	}
+
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
+}
+
+void scene_structure::display_magic_effect()
+{
+	if (!magic.active)
+		return;
+
+	float const age = timer.t - magic.start_time;
+	float const u = saturate(age / magic.duration);
+	float const fade = 1.0f - smoothstep(0.55f, 1.0f, u);
+	float const pulse = 1.0f + 0.05f * std::sin(16.0f * age);
+	vec3 const center = magic.center;
+	float const radius = magic.radius * pulse;
+
+	// curve_drawable has no material alpha; keep the symbols stable and fade only mesh effects.
+	affine circle_transform;
+	circle_transform.translation = center;
+	circle_transform.scaling = radius;
+	circle_transform.scaling_xyz = {1.0f, 1.0f, 1.0f};
+	magic_outer_ring.model = circle_transform;
+	draw(magic_outer_ring, environment);
+
+	circle_transform.translation = center + vec3{0.0f, 0.0f, 0.012f};
+	magic_inner_ring.model = circle_transform;
+	draw(magic_inner_ring, environment);
+
+	circle_transform.translation = center + vec3{0.0f, 0.0f, 0.024f};
+	circle_transform.rotation = rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, 0.35f * age);
+	magic_triangle_a.model = circle_transform;
+	draw(magic_triangle_a, environment);
+
+	circle_transform.translation = center + vec3{0.0f, 0.0f, 0.036f};
+	circle_transform.rotation = rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, -0.28f * age);
+	magic_triangle_b.model = circle_transform;
+	draw(magic_triangle_b, environment);
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+	glDepthMask(GL_FALSE);
+
+	// Transparent additive column, fading before the curve symbols disappear.
+	magic_cylinder.model.translation = center;
+	magic_cylinder.model.rotation = rotation_transform();
+	magic_cylinder.model.scaling = 1.0f;
+	magic_cylinder.model.scaling_xyz = {0.82f * radius, 0.82f * radius, magic.cylinder_height};
+	magic_cylinder.material.alpha = 0.16f * fade;
+	draw(magic_cylinder, environment);
+
+	for (int k = 0; k < magic.particle_count; ++k) {
+		float const seed = 17.17f * float(k);
+		float const phase = fract(0.23f * age + fract(0.137f * seed));
+		float const a = seed + 1.8f * age;
+		float const r = magic.radius * (0.15f + 0.78f * fract(0.311f * seed));
+		vec3 const p = center + vec3{
+			r * std::cos(a),
+			r * std::sin(a),
+			0.18f + magic.cylinder_height * phase
+		};
+
+		float const particle_fade = fade * std::sin(Pi * phase);
+		if (particle_fade <= 0.0f)
+			continue;
+
+		magic_particle.model.translation = p;
+		magic_particle.model.rotation = rotation_transform();
+		magic_particle.model.scaling = 0.035f + 0.055f * fract(0.071f * seed);
+		magic_particle.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+		magic_particle.material.alpha = 0.75f * particle_fade;
+		draw(magic_particle, environment);
+	}
+
+	glDepthMask(GL_TRUE);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glDisable(GL_BLEND);
+	magic_cylinder.material.alpha = 0.18f;
+	magic_particle.material.alpha = 0.75f;
+}
+
 void scene_structure::reset_camera_overview()
 {
 	character.camera_pitch = 0.45f;
@@ -2113,6 +2339,7 @@ void scene_structure::initialize()
 	initialize_weather_effects();
 	initialize_boats();
 	initialize_character();
+	initialize_magic_effect();
 
 	environment.background_color = ocean_far_tint();
 	gui.display_frame = false;
@@ -2132,6 +2359,7 @@ void scene_structure::display_frame()
 	timer.update();
 	float const t = gui.animate_scene ? timer.t : 0.0f;
 	update_day_night_cycle(t);
+	update_magic_effect(timer.t);
 
 	uniform_generic_structure water_uniforms;
 	water_uniforms.uniform_float["time"] = t;
@@ -2153,7 +2381,9 @@ void scene_structure::display_frame()
 	draw(island, environment);
 
 	draw_structures(t);
+	display_summoned_grass();
 	display_character();
+	display_magic_effect();
 	draw_vegetation(t);
 	draw_summit_tree();
 	draw_fauna(t);
@@ -2301,6 +2531,9 @@ void scene_structure::keyboard_event()
 
 	if (inputs.keyboard.last_action.is_pressed(GLFW_KEY_R))
 		reset_camera_overview();
+
+	if (inputs.keyboard.last_action.is_pressed(GLFW_KEY_Z))
+		trigger_magic_effect();
 
 	if (!character.enabled)
 		camera_control.action_keyboard();

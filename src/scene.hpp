@@ -102,6 +102,24 @@ struct character_controller {
 	bool enabled = false;
 };
 
+struct magic_effect_state {
+	bool active = false;
+	float start_time = 0.0f;
+	float duration = 3.0f;
+
+	cgp::vec3 center = {0.0f, 0.0f, 0.0f};
+	float radius = 3.0f;
+	float cylinder_height = 3.0f;
+
+	int particle_count = 80;
+};
+
+struct grass_instance {
+	cgp::vec3 position;
+	float scale = 1.0f;
+	float angle = 0.0f;
+};
+
 struct scene_structure : cgp::scene_inputs_generic {
 	void initialize();
 	void display_frame();
@@ -112,6 +130,7 @@ struct scene_structure : cgp::scene_inputs_generic {
 	input_devices inputs;
 	gui_parameters gui;
 	character_controller character;
+	magic_effect_state magic;
 
 	void display_info();
 
@@ -194,6 +213,13 @@ struct scene_structure : cgp::scene_inputs_generic {
 	mesh_drawable character_right_arm;
 	mesh_drawable character_left_leg;
 	mesh_drawable character_right_leg;
+	cgp::curve_drawable magic_outer_ring;
+	cgp::curve_drawable magic_inner_ring;
+	cgp::curve_drawable magic_triangle_a;
+	cgp::curve_drawable magic_triangle_b;
+	mesh_drawable magic_cylinder;
+	mesh_drawable magic_particle;
+	mesh_drawable grass_billboard;
 
 	mesh_drawable bird_body;
 	mesh_drawable bird_wing;
@@ -238,6 +264,7 @@ struct scene_structure : cgp::scene_inputs_generic {
 	cgp::numarray<cgp::vec4> cloud_instance_rotation_alpha;
 	std::vector<wind_streak_instance> wind_streaks;
 	std::vector<boat_instance> boats;
+	std::vector<grass_instance> summoned_grass;
 	cgp::numarray<cgp::vec4> bird_body_position_scale;
 	cgp::numarray<cgp::vec4> bird_body_rotation;
 
@@ -260,6 +287,7 @@ struct scene_structure : cgp::scene_inputs_generic {
 	void initialize_weather_effects();
 	void initialize_boats();
 	void initialize_character();
+	void initialize_magic_effect();
 	void initialize_palm_instance_buffers();
 	void update_palm_instance_rotation_buffer(float t);
 	void initialize_shrub_instance_buffers();
@@ -284,6 +312,11 @@ struct scene_structure : cgp::scene_inputs_generic {
 	void update_character(float dt);
 	void update_third_person_camera();
 	void display_character();
+	void trigger_magic_effect();
+	void update_magic_effect(float t);
+	void display_magic_effect();
+	void spawn_summoned_grass(cgp::vec3 const& center, float radius);
+	void display_summoned_grass();
 	void reset_camera_overview();
 	void toggle_third_person_mode();
 	void draw_lighthouse_beam_effect(float t, cgp::vec3 const& lighthouse_pos);
