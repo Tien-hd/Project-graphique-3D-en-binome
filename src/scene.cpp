@@ -445,6 +445,73 @@ mesh make_wind_streak_ribbon_mesh()
 	shape.fill_empty_field();
 	return shape;
 }
+
+mesh create_boat_hull_mesh()
+{
+	mesh shape;
+	shape.position = {
+	    {-1.25f, -0.45f, 0.25f},
+	    {-1.25f,  0.45f, 0.25f},
+	    { 0.40f, -0.40f, 0.32f},
+	    { 0.40f,  0.40f, 0.32f},
+	    { 1.35f,  0.00f, 0.24f},
+	    {-0.95f,  0.00f, -0.18f},
+	    { 0.30f,  0.00f, -0.24f},
+	    { 1.05f,  0.00f, -0.08f},
+	};
+
+	shape.connectivity = {
+	    {0, 2, 3}, {0, 3, 1},      // open top rim
+	    {2, 4, 3},                 // pointed bow top
+	    {0, 5, 6}, {0, 6, 2},      // left side
+	    {3, 6, 5}, {3, 5, 1},      // right side
+	    {2, 6, 7}, {2, 7, 4},      // bow left
+	    {4, 7, 6}, {4, 6, 3},      // bow right
+	    {0, 1, 5},                 // stern
+	};
+
+	shape.fill_empty_field();
+	shape.normal_update();
+	return shape;
+}
+
+mesh create_boat_cabin_mesh()
+{
+	mesh shape = mesh_primitive_cube({-0.25f, 0.0f, 0.52f}, 1.0f);
+	for (vec3& p : shape.position) {
+		p.x = -0.25f + 0.55f * (p.x + 0.25f);
+		p.y = 0.34f * p.y;
+		p.z = 0.52f + 0.36f * (p.z - 0.52f);
+	}
+	shape.normal_update();
+	shape.fill_empty_field();
+	return shape;
+}
+
+mesh create_wake_ellipse_mesh(int N = 48)
+{
+	mesh shape;
+	shape.position.push_back({0.0f, 0.0f, 0.0f});
+	shape.normal.push_back({0.0f, 0.0f, 1.0f});
+	shape.color.push_back({1.0f, 1.0f, 1.0f});
+	shape.uv.push_back({0.5f, 0.5f});
+
+	for (int k = 0; k < N; ++k) {
+		float const u = 2.0f * Pi * k / float(N);
+		shape.position.push_back({std::cos(u), std::sin(u), 0.0f});
+		shape.normal.push_back({0.0f, 0.0f, 1.0f});
+		shape.color.push_back({1.0f, 1.0f, 1.0f});
+		shape.uv.push_back({0.5f + 0.5f * std::cos(u), 0.5f + 0.5f * std::sin(u)});
+	}
+
+	for (int k = 0; k < N; ++k) {
+		unsigned int const a = 1u + static_cast<unsigned int>(k);
+		unsigned int const b = 1u + static_cast<unsigned int>((k + 1) % N);
+		shape.connectivity.push_back({0u, a, b});
+	}
+	shape.fill_empty_field();
+	return shape;
+}
 }
 
 float scene_structure::terrain_height(float x, float y) const
@@ -1088,6 +1155,32 @@ void scene_structure::initialize_weather_effects()
 	}
 }
 
+void scene_structure::initialize_boats()
+{
+	boat_hull.initialize_data_on_gpu(create_boat_hull_mesh());
+	boat_hull.material.texture_settings.active = false;
+	boat_hull.material.color = {0.34f, 0.17f, 0.07f};
+	boat_hull.material.phong = {0.45f, 0.50f, 0.10f, 18.0f};
+
+	boat_cabin.initialize_data_on_gpu(create_boat_cabin_mesh());
+	boat_cabin.material.texture_settings.active = false;
+	boat_cabin.material.color = {0.84f, 0.78f, 0.62f};
+	boat_cabin.material.phong = {0.50f, 0.42f, 0.10f, 22.0f};
+
+	wake_ellipse.initialize_data_on_gpu(create_wake_ellipse_mesh());
+	wake_ellipse.material.texture_settings.active = false;
+	wake_ellipse.material.texture_settings.two_sided = true;
+	wake_ellipse.material.color = {0.76f, 0.91f, 1.0f};
+	wake_ellipse.material.alpha = 0.22f;
+	wake_ellipse.material.phong = {0.40f, 0.12f, 0.0f, 4.0f};
+
+	boats = {
+	    {34.0f,  0.13f, 0.0f, 1.0f,  0.0f},
+	    {43.0f, -0.09f, 2.1f, 0.8f,  1.8f},
+	    {52.0f,  0.07f, 4.3f, 1.2f, -2.5f},
+	};
+}
+
 void scene_structure::initialize_foam_instance_buffers()
 {
 	foam_instance_buffers_initialized = false;
@@ -1594,6 +1687,88 @@ void scene_structure::draw_wind_streaks(float t)
 	glDisable(GL_BLEND);
 }
 
+void scene_structure::draw_boats(float t)
+{
+	if (boats.empty())
+		return;
+
+	struct boat_draw_state {
+		boat_instance const* boat = nullptr;
+		vec3 position;
+		vec3 tangent;
+		float heading = 0.0f;
+	};
+
+	std::vector<boat_draw_state> states;
+	states.reserve(boats.size());
+
+	for (boat_instance const& b : boats) {
+		float const a = b.speed * t + b.phase;
+		float const radius = b.radius + b.lateral_offset;
+		float const x = radius * std::cos(a);
+		float const y = 0.78f * radius * std::sin(a);
+		float const z = water_height(x, y, t) + 0.25f * b.scale;
+
+		vec3 tangent = normalize(vec3{
+		    -radius * std::sin(a),
+		     0.78f * radius * std::cos(a),
+		     0.0f
+		});
+		if (b.speed < 0.0f)
+			tangent = -tangent;
+
+		float const heading = std::atan2(tangent.y, tangent.x);
+		states.push_back({&b, {x, y, z}, tangent, heading});
+	}
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glDepthMask(GL_FALSE);
+
+	for (boat_draw_state const& state : states) {
+		boat_instance const& b = *state.boat;
+		vec3 const backward = -state.tangent;
+		for (int k = 0; k < 7; ++k) {
+			float const dist = b.scale * (1.5f + 1.4f * k);
+			vec3 p = state.position + dist * backward;
+			p.z = water_height(p.x, p.y, t) + 0.04f;
+
+			float const pulse = 0.5f + 0.5f * std::sin(3.0f * t - 0.8f * k);
+			float const sx = b.scale * (0.8f + 0.35f * k) * (0.92f + 0.10f * pulse);
+			float const sy = b.scale * (0.10f + 0.07f * k);
+			float const alpha = 0.20f * (1.0f - k / 7.0f) * (0.75f + 0.25f * pulse);
+
+			wake_ellipse.material.alpha = alpha;
+			wake_ellipse.model.translation = p;
+			wake_ellipse.model.rotation = rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, state.heading);
+			wake_ellipse.model.scaling = 1.0f;
+			wake_ellipse.model.scaling_xyz = {sx, sy, 1.0f};
+			draw(wake_ellipse, environment);
+		}
+	}
+
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
+	wake_ellipse.material.alpha = 0.22f;
+
+	for (boat_draw_state const& state : states) {
+		boat_instance const& b = *state.boat;
+		rotation_transform const R = rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, state.heading);
+
+		boat_hull.model.translation = state.position;
+		boat_hull.model.rotation = R;
+		boat_hull.model.scaling = b.scale;
+		boat_hull.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+		draw(boat_hull, environment);
+
+		boat_cabin.model.translation = state.position;
+		boat_cabin.model.rotation = R;
+		boat_cabin.model.scaling = b.scale;
+		boat_cabin.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+		draw(boat_cabin, environment);
+	}
+}
+
 void scene_structure::draw_sky_elements(float t)
 {
 	if (!gui.display_sun_disc && !gui.display_moon_disc)
@@ -1703,6 +1878,7 @@ void scene_structure::initialize()
 	initialize_fauna();
 	initialize_particles();
 	initialize_weather_effects();
+	initialize_boats();
 
 	environment.background_color = ocean_far_tint();
 	gui.display_frame = false;
@@ -1795,6 +1971,8 @@ void scene_structure::display_frame()
 			draw_lighthouse_beam_effect(t, lighthouse_world_position());
 		}
 	}
+
+	draw_boats(t);
 
 	if (gui.display_wireframe) {
 		draw_wireframe(island, environment, {0.2f, 0.2f, 0.2f});

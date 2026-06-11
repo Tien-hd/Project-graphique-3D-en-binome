@@ -78,6 +78,14 @@ struct wind_streak_instance {
 	float bend = 1.0f;
 };
 
+struct boat_instance {
+	float radius = 34.0f;
+	float speed = 0.12f;
+	float phase = 0.0f;
+	float scale = 1.0f;
+	float lateral_offset = 0.0f;
+};
+
 struct scene_structure : cgp::scene_inputs_generic {
 	void initialize();
 	void display_frame();
@@ -160,6 +168,9 @@ struct scene_structure : cgp::scene_inputs_generic {
 	mesh_drawable foam_billboard;
 	mesh_drawable cloud_billboard;
 	mesh_drawable wind_streak_ribbon;
+	mesh_drawable boat_hull;
+	mesh_drawable boat_cabin;
+	mesh_drawable wake_ellipse;
 
 	mesh_drawable bird_body;
 	mesh_drawable bird_wing;
@@ -183,6 +194,7 @@ struct scene_structure : cgp::scene_inputs_generic {
 	cgp::numarray<cgp::vec4> cloud_instance_position_scale;
 	cgp::numarray<cgp::vec4> cloud_instance_rotation_alpha;
 	std::vector<wind_streak_instance> wind_streaks;
+	std::vector<boat_instance> boats;
 	cgp::numarray<cgp::vec4> bird_body_position_scale;
 	cgp::numarray<cgp::vec4> bird_body_rotation;
 
@@ -203,6 +215,7 @@ struct scene_structure : cgp::scene_inputs_generic {
 	void initialize_fauna();
 	void initialize_particles();
 	void initialize_weather_effects();
+	void initialize_boats();
 	void initialize_palm_instance_buffers();
 	void update_palm_instance_rotation_buffer(float t);
 	void initialize_shrub_instance_buffers();
@@ -223,6 +236,7 @@ struct scene_structure : cgp::scene_inputs_generic {
 	void draw_glows(float t);
 	void draw_clouds(float t);
 	void draw_wind_streaks(float t);
+	void draw_boats(float t);
 	void draw_lighthouse_beam_effect(float t, cgp::vec3 const& lighthouse_pos);
 	cgp::vec3 lighthouse_world_position() const;
 	void draw_sky_elements(float t);
