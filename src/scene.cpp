@@ -1261,6 +1261,9 @@ void scene_structure::initialize_character()
 	character.position = {0.0f, 0.0f, terrain_height(0.0f, 0.0f)};
 	character.heading = 0.0f;
 	character.enabled = false;
+	character.is_jumping = false;
+	character.jump_key_was_pressed = false;
+	character.vertical_velocity = 0.0f;
 
 	character_body.initialize_data_on_gpu(mesh_primitive_cylinder(0.22f, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.75f}, 18, 8, true));
 	character_body.material.texture_settings.active = false;
@@ -2000,11 +2003,33 @@ void scene_structure::update_character(float dt)
 	if (inputs.keyboard.is_pressed(GLFW_KEY_D) || inputs.keyboard.right)
 		character.heading -= character.angular_speed * dt;
 
-	float const terrain_z = terrain_height(new_position.x, new_position.y);
+	float const candidate_ground_z = terrain_height(new_position.x, new_position.y);
 	float const margin = 0.15f;
-	if (terrain_z > sea_level + margin) {
-		new_position.z = terrain_z;
-		character.position = new_position;
+	if (candidate_ground_z > sea_level + margin) {
+		character.position.x = new_position.x;
+		character.position.y = new_position.y;
+	}
+
+	bool const jump_key_pressed = inputs.keyboard.is_pressed(GLFW_KEY_SPACE);
+	if (jump_key_pressed && !character.jump_key_was_pressed && !character.is_jumping) {
+		character.is_jumping = true;
+		character.vertical_velocity = character.jump_speed;
+	}
+	character.jump_key_was_pressed = jump_key_pressed;
+
+	float const ground_z = terrain_height(character.position.x, character.position.y) + character.ground_clearance;
+	if (character.is_jumping) {
+		character.position.z += character.vertical_velocity * dt;
+		character.vertical_velocity -= character.gravity * dt;
+
+		if (character.position.z <= ground_z) {
+			character.position.z = ground_z;
+			character.vertical_velocity = 0.0f;
+			character.is_jumping = false;
+		}
+	}
+	else {
+		character.position.z = ground_z;
 	}
 }
 
@@ -2496,6 +2521,24 @@ void scene_structure::display_gui()
 	ImGui::Text("Palms: %d  Shrubs: %d", static_cast<int>(palms.size()), static_cast<int>(shrubs.size()));
 	ImGui::Text("Birds: %d  Glow particles: %d", static_cast<int>(birds.size()), static_cast<int>(glows.size()));
 	ImGui::Text("Foam particles: %d", static_cast<int>(foams.size()));
+
+	ImGui::Separator();
+	
+	ImGui::Text("Character mode");
+	ImGui::BulletText("C: Toggle third-person mode");
+	ImGui::BulletText("ESC: Exit third-person mode");
+	ImGui::BulletText("R: Reset camera overview");
+
+	ImGui::Text("Movement");
+	ImGui::BulletText("W/Up: Move forward");
+	ImGui::BulletText("S/Down: Move backward");
+	ImGui::BulletText("A/Left: Rotate left");
+	ImGui::BulletText("D/Right: Rotate right");
+	ImGui::BulletText("Mouse: Camera yaw/pitch");
+	ImGui::BulletText("Space: Jump");
+
+	ImGui::Text("Skill");
+	ImGui::BulletText("Z: Magic summon circle, particles and grass");
 }
 
 void scene_structure::mouse_move_event()

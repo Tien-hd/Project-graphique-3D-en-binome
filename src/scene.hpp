@@ -99,6 +99,12 @@ struct character_controller {
 	float camera_yaw_sensitivity = 0.8f;
 	float camera_pitch_min = -0.40f;
 	float camera_pitch_max = 0.5f;
+	bool is_jumping = false;
+	bool jump_key_was_pressed = false;
+	float vertical_velocity = 0.0f;
+	float gravity = 9.8f;
+	float jump_speed = 4.8f;
+	float ground_clearance = 0.0f;
 	bool enabled = false;
 };
 
