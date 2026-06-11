@@ -1230,6 +1230,41 @@ void scene_structure::initialize_boats()
 	};
 }
 
+void scene_structure::initialize_character()
+{
+	character.position = {0.0f, 0.0f, terrain_height(0.0f, 0.0f)};
+	character.heading = 0.0f;
+	character.enabled = false;
+
+	character_body.initialize_data_on_gpu(mesh_primitive_cylinder(0.22f, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.75f}, 18, 8, true));
+	character_body.material.texture_settings.active = false;
+	character_body.material.color = {0.18f, 0.36f, 0.76f};
+	character_body.material.phong = {0.48f, 0.55f, 0.12f, 24.0f};
+
+	character_head.initialize_data_on_gpu(mesh_primitive_sphere(0.20f, {0.0f, 0.0f, 0.0f}, 18, 12));
+	character_head.material.texture_settings.active = false;
+	character_head.material.color = {0.88f, 0.66f, 0.48f};
+	character_head.material.phong = {0.48f, 0.50f, 0.10f, 18.0f};
+
+	character_left_arm.initialize_data_on_gpu(mesh_primitive_cylinder(0.055f, {0.0f, 0.0f, -0.25f}, {0.0f, 0.0f, 0.25f}, 12, 4, true));
+	character_right_arm.initialize_data_on_gpu(mesh_primitive_cylinder(0.055f, {0.0f, 0.0f, -0.25f}, {0.0f, 0.0f, 0.25f}, 12, 4, true));
+	character_left_leg.initialize_data_on_gpu(mesh_primitive_cylinder(0.070f, {0.0f, 0.0f, -0.32f}, {0.0f, 0.0f, 0.32f}, 12, 4, true));
+	character_right_leg.initialize_data_on_gpu(mesh_primitive_cylinder(0.070f, {0.0f, 0.0f, -0.32f}, {0.0f, 0.0f, 0.32f}, 12, 4, true));
+
+	character_left_arm.material.texture_settings.active = false;
+	character_right_arm.material.texture_settings.active = false;
+	character_left_leg.material.texture_settings.active = false;
+	character_right_leg.material.texture_settings.active = false;
+	character_left_arm.material.color = {0.18f, 0.36f, 0.76f};
+	character_right_arm.material.color = {0.18f, 0.36f, 0.76f};
+	character_left_leg.material.color = {0.12f, 0.16f, 0.22f};
+	character_right_leg.material.color = {0.12f, 0.16f, 0.22f};
+	character_left_arm.material.phong = {0.45f, 0.48f, 0.08f, 12.0f};
+	character_right_arm.material.phong = character_left_arm.material.phong;
+	character_left_leg.material.phong = {0.45f, 0.48f, 0.08f, 12.0f};
+	character_right_leg.material.phong = character_left_leg.material.phong;
+}
+
 void scene_structure::initialize_foam_instance_buffers()
 {
 	foam_instance_buffers_initialized = false;
@@ -1868,6 +1903,98 @@ void scene_structure::draw_boats(float t)
 	}
 }
 
+void scene_structure::update_character(float dt)
+{
+	if (!character.enabled)
+		return;
+
+	vec3 const forward = {std::cos(character.heading), std::sin(character.heading), 0.0f};
+	vec3 new_position = character.position;
+
+	if (inputs.keyboard.is_pressed(GLFW_KEY_W) || inputs.keyboard.up)
+		new_position += character.speed * dt * forward;
+	if (inputs.keyboard.is_pressed(GLFW_KEY_S) || inputs.keyboard.down)
+		new_position -= character.speed * dt * forward;
+	if (inputs.keyboard.is_pressed(GLFW_KEY_A) || inputs.keyboard.left)
+		character.heading += character.angular_speed * dt;
+	if (inputs.keyboard.is_pressed(GLFW_KEY_D) || inputs.keyboard.right)
+		character.heading -= character.angular_speed * dt;
+
+	float const terrain_z = terrain_height(new_position.x, new_position.y);
+	float const margin = 0.15f;
+	if (terrain_z > sea_level + margin) {
+		new_position.z = terrain_z;
+		character.position = new_position;
+	}
+}
+
+void scene_structure::update_third_person_camera()
+{
+	if (!character.enabled)
+		return;
+
+	vec3 const target = character.position + vec3{0.0f, 0.0f, 1.1f};
+	vec3 const forward = {std::cos(character.heading), std::sin(character.heading), 0.0f};
+	float const follow_distance = 5.0f;
+	float const follow_height = 2.5f;
+	vec3 const camera_position = target - follow_distance * forward + vec3{0.0f, 0.0f, follow_height};
+
+	camera_control.look_at(camera_position, target, {0.0f, 0.0f, 1.0f});
+}
+
+void scene_structure::display_character()
+{
+	vec3 const p = character.position;
+	rotation_transform const R = rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, character.heading);
+	rotation_transform const R_limb = R * rotation_transform::from_axis_angle({1.0f, 0.0f, 0.0f}, 0.18f);
+
+	character_body.model.translation = p + vec3{0.0f, 0.0f, 0.32f};
+	character_body.model.rotation = R;
+	character_body.model.scaling = 1.0f;
+	character_body.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+	draw(character_body, environment);
+
+	character_head.model.translation = p + vec3{0.0f, 0.0f, 1.14f};
+	character_head.model.rotation = R;
+	character_head.model.scaling = 1.0f;
+	character_head.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+	draw(character_head, environment);
+
+	character_left_arm.model.translation = p + R * vec3{0.0f, 0.30f, 0.62f};
+	character_left_arm.model.rotation = R_limb;
+	character_left_arm.model.scaling = 1.0f;
+	character_left_arm.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+	draw(character_left_arm, environment);
+
+	character_right_arm.model.translation = p + R * vec3{0.0f, -0.30f, 0.62f};
+	character_right_arm.model.rotation = R_limb;
+	character_right_arm.model.scaling = 1.0f;
+	character_right_arm.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+	draw(character_right_arm, environment);
+
+	character_left_leg.model.translation = p + R * vec3{0.0f, 0.11f, 0.04f};
+	character_left_leg.model.rotation = R;
+	character_left_leg.model.scaling = 1.0f;
+	character_left_leg.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+	draw(character_left_leg, environment);
+
+	character_right_leg.model.translation = p + R * vec3{0.0f, -0.11f, 0.04f};
+	character_right_leg.model.rotation = R;
+	character_right_leg.model.scaling = 1.0f;
+	character_right_leg.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+	draw(character_right_leg, environment);
+}
+
+void scene_structure::reset_camera_overview()
+{
+	camera_control.look_at({-34.0f, -29.0f, 16.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 1.0f});
+}
+
+void scene_structure::toggle_third_person_mode()
+{
+	character.enabled = !character.enabled;
+}
+
 void scene_structure::draw_sky_elements(float t)
 {
 	if (!gui.display_sun_disc && !gui.display_moon_disc)
@@ -1979,6 +2106,7 @@ void scene_structure::initialize()
 	initialize_particles();
 	initialize_weather_effects();
 	initialize_boats();
+	initialize_character();
 
 	environment.background_color = ocean_far_tint();
 	gui.display_frame = false;
@@ -2019,6 +2147,7 @@ void scene_structure::display_frame()
 	draw(island, environment);
 
 	draw_structures(t);
+	display_character();
 	draw_vegetation(t);
 	draw_summit_tree();
 	draw_fauna(t);
@@ -2135,23 +2264,43 @@ void scene_structure::display_gui()
 
 void scene_structure::mouse_move_event()
 {
+	if (character.enabled)
+		return;
+
 	if (!inputs.keyboard.shift)
 		camera_control.action_mouse_move();
 }
 
 void scene_structure::mouse_click_event()
 {
-	camera_control.action_mouse_click();
+	if (!character.enabled)
+		camera_control.action_mouse_click();
 }
 
 void scene_structure::keyboard_event()
 {
-	camera_control.action_keyboard();
+	if (inputs.keyboard.last_action.is_pressed(GLFW_KEY_C))
+		toggle_third_person_mode();
+
+	if (inputs.keyboard.last_action.is_pressed(GLFW_KEY_ESCAPE))
+		character.enabled = false;
+
+	if (inputs.keyboard.last_action.is_pressed(GLFW_KEY_R))
+		reset_camera_overview();
+
+	if (!character.enabled)
+		camera_control.action_keyboard();
 }
 
 void scene_structure::idle_frame()
 {
-	camera_control.idle_frame();
+	if (character.enabled) {
+		update_character(inputs.time_interval);
+		update_third_person_camera();
+	}
+	else {
+		camera_control.idle_frame();
+	}
 }
 
 void scene_structure::display_info()

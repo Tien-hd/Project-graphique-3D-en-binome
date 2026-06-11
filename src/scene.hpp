@@ -88,6 +88,14 @@ struct boat_instance {
 	float lateral_offset = 0.0f;
 };
 
+struct character_controller {
+	cgp::vec3 position = {0.0f, 0.0f, 0.0f};
+	float heading = 0.0f;
+	float speed = 4.0f;
+	float angular_speed = 2.2f;
+	bool enabled = false;
+};
+
 struct scene_structure : cgp::scene_inputs_generic {
 	void initialize();
 	void display_frame();
@@ -97,6 +105,7 @@ struct scene_structure : cgp::scene_inputs_generic {
 	window_structure window;
 	input_devices inputs;
 	gui_parameters gui;
+	character_controller character;
 
 	void display_info();
 
@@ -173,6 +182,12 @@ struct scene_structure : cgp::scene_inputs_generic {
 	mesh_drawable boat_hull;
 	mesh_drawable boat_cabin;
 	mesh_drawable wake_ellipse;
+	mesh_drawable character_body;
+	mesh_drawable character_head;
+	mesh_drawable character_left_arm;
+	mesh_drawable character_right_arm;
+	mesh_drawable character_left_leg;
+	mesh_drawable character_right_leg;
 
 	mesh_drawable bird_body;
 	mesh_drawable bird_wing;
@@ -238,6 +253,7 @@ struct scene_structure : cgp::scene_inputs_generic {
 	void initialize_particles();
 	void initialize_weather_effects();
 	void initialize_boats();
+	void initialize_character();
 	void initialize_palm_instance_buffers();
 	void update_palm_instance_rotation_buffer(float t);
 	void initialize_shrub_instance_buffers();
@@ -259,6 +275,11 @@ struct scene_structure : cgp::scene_inputs_generic {
 	void draw_clouds(float t);
 	void draw_wind_streaks(float t);
 	void draw_boats(float t);
+	void update_character(float dt);
+	void update_third_person_camera();
+	void display_character();
+	void reset_camera_overview();
+	void toggle_third_person_mode();
 	void draw_lighthouse_beam_effect(float t, cgp::vec3 const& lighthouse_pos);
 	cgp::vec3 lighthouse_world_position() const;
 	void draw_sky_elements(float t);
