@@ -2412,6 +2412,7 @@ void scene_structure::display_frame()
 	draw_vegetation(t);
 	draw_summit_tree();
 	draw_fauna(t);
+	draw_boats(t);
 	draw_clouds(t);
 	draw_wind_streaks(t);
 
