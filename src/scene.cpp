@@ -865,6 +865,55 @@ void scene_structure::initialize_vegetation()
 	initialize_shrub_instance_buffers();
 }
 
+void scene_structure::initialize_summit_tree()
+{
+	try {
+		mesh trunk_mesh = mesh_load_file_obj(project::path + "assets/trunk.obj");
+		mesh branches_mesh = mesh_load_file_obj(project::path + "assets/branches.obj");
+		mesh foliage_mesh = mesh_load_file_obj(project::path + "assets/foliage.obj");
+
+		trunk_mesh.fill_empty_field();
+		branches_mesh.fill_empty_field();
+		foliage_mesh.fill_empty_field();
+
+		mesh_transparency_shader.load(
+		    project::path + "shaders/mesh_transparency/mesh_transparency.vert.glsl",
+		    project::path + "shaders/mesh_transparency/mesh_transparency.frag.glsl"
+		);
+
+		summit_trunk.initialize_data_on_gpu(trunk_mesh);
+		summit_branches.initialize_data_on_gpu(branches_mesh);
+		summit_foliage.initialize_data_on_gpu(foliage_mesh, mesh_transparency_shader);
+
+		summit_trunk.texture.load_and_initialize_texture_2d_on_gpu(project::path + "assets/trunk.png");
+		summit_branches.texture.load_and_initialize_texture_2d_on_gpu(project::path + "assets/trunk.png");
+		summit_foliage.texture.load_and_initialize_texture_2d_on_gpu(project::path + "assets/pine.png");
+
+		summit_trunk.material.color = {1.0f, 1.0f, 1.0f};
+		summit_branches.material.color = {1.0f, 1.0f, 1.0f};
+		summit_foliage.material.color = {1.0f, 1.0f, 1.0f};
+
+		summit_trunk.material.phong = {0.45f, 0.55f, 0.10f, 20.0f};
+		summit_branches.material.phong = {0.45f, 0.55f, 0.10f, 20.0f};
+		summit_foliage.material.phong = {0.45f, 0.55f, 0.06f, 12.0f};
+
+		summit_foliage.material.texture_settings.two_sided = true;
+
+		float const x = -1.0f;
+		float const y = 1.0f;
+		float const z = terrain_height(x, y);
+
+		summit_tree_position = {x, y, z + 0.05f};
+		summit_tree_scale = 0.55f * 2.0f;
+
+		has_summit_tree = true;
+	}
+	catch (...) {
+		has_summit_tree = false;
+		std::cout << "Could not load summit tree model." << std::endl;
+	}
+}
+
 void scene_structure::initialize_palm_instance_buffers()
 {
 	palm_instance_buffers_initialized = false;
@@ -1510,6 +1559,56 @@ void scene_structure::draw_vegetation(float t)
 	}
 }
 
+void scene_structure::draw_summit_tree()
+{
+	if (!has_summit_tree)
+		return;
+
+	if (!gui.display_summit_tree)
+		return;
+
+	rotation_transform const Rx =
+		rotation_transform::from_axis_angle(
+			{1.0f, 0.0f, 0.0f},
+			Pi/2.0f
+		);
+
+	rotation_transform const Rz =
+		rotation_transform::from_axis_angle(
+			{0.0f, 0.0f, 1.0f},
+			0.35f
+		);
+
+	rotation_transform const R = Rz * Rx;
+
+	summit_trunk.model.translation = summit_tree_position;
+	summit_trunk.model.rotation = R;
+	summit_trunk.model.scaling = summit_tree_scale;
+	summit_trunk.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+	draw(summit_trunk, environment);
+
+	summit_branches.model.translation = summit_tree_position;
+	summit_branches.model.rotation = R;
+	summit_branches.model.scaling = summit_tree_scale;
+	summit_branches.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+	draw(summit_branches, environment);
+
+	if (gui.display_summit_tree_foliage) {
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		glDepthMask(GL_FALSE);
+
+		summit_foliage.model.translation = summit_tree_position;
+		summit_foliage.model.rotation = R;
+		summit_foliage.model.scaling = summit_tree_scale;
+		summit_foliage.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
+		draw(summit_foliage, environment);
+
+		glDepthMask(GL_TRUE);
+		glDisable(GL_BLEND);
+	}
+}
+
 void scene_structure::draw_fauna(float t)
 {
     if (!gui.display_fauna)
@@ -1875,6 +1974,7 @@ void scene_structure::initialize()
 	initialize_skybox();
 	initialize_structures();
 	initialize_vegetation();
+	initialize_summit_tree();
 	initialize_fauna();
 	initialize_particles();
 	initialize_weather_effects();
@@ -1920,6 +2020,7 @@ void scene_structure::display_frame()
 
 	draw_structures(t);
 	draw_vegetation(t);
+	draw_summit_tree();
 	draw_fauna(t);
 	draw_clouds(t);
 	draw_wind_streaks(t);
@@ -1972,8 +2073,6 @@ void scene_structure::display_frame()
 		}
 	}
 
-	draw_boats(t);
-
 	if (gui.display_wireframe) {
 		draw_wireframe(island, environment, {0.2f, 0.2f, 0.2f});
 		draw_wireframe(water, environment, {0.1f, 0.3f, 0.6f}, 1, true, water_uniforms);
@@ -2003,6 +2102,10 @@ void scene_structure::display_gui()
 	ImGui::SliderFloat("Wind streak speed", &wind_streak_speed, 0.0f, 8.0f);
 	ImGui::Checkbox("Water", &gui.display_water);
 	ImGui::Checkbox("Vegetation", &gui.display_vegetation);
+	ImGui::Checkbox("Summit tree", &gui.display_summit_tree);
+	if (gui.display_summit_tree) {
+    	ImGui::Checkbox("Summit tree foliage", &gui.display_summit_tree_foliage);
+	}	
 	ImGui::Checkbox("Fauna", &gui.display_fauna);
 	ImGui::Checkbox("Foam", &gui.display_foam);
 	ImGui::Checkbox("Lighthouse beam", &gui.display_lighthouse_beam);

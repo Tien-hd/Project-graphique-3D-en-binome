@@ -24,6 +24,8 @@ struct gui_parameters {
 	bool display_clouds = true;
 	bool display_wind_streaks = true;
 	bool use_textured_skybox = true;
+	bool display_summit_tree = true;
+	bool display_summit_tree_foliage = true;
 	float wind = 1.0f;
 };
 
@@ -178,6 +180,26 @@ struct scene_structure : cgp::scene_inputs_generic {
 	mesh_drawable glow_orb;
 	mesh_drawable sun_disc;
 	mesh_drawable moon_disc;
+
+	mesh_drawable trunk;
+	mesh_drawable branches;
+	mesh_drawable foliage;
+	affine_rts summit_tree_transform;
+
+	mesh_drawable summit_trunk;
+	mesh_drawable summit_branches;
+	mesh_drawable summit_foliage;
+
+	opengl_shader_structure mesh_transparency_shader;
+	vec3 summit_tree_position = {0.0f, 0.0f, 0.0f};
+	float summit_tree_scale = 0.55f;
+
+	bool has_summit_tree = false;
+
+	void initialize_summit_tree();
+	void draw_summit_tree();
+
+
 
 	std::vector<palm_instance> palms;
 	cgp::numarray<cgp::vec4> palm_instance_position_scale;
