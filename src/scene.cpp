@@ -2500,7 +2500,7 @@ void scene_structure::display_gui()
 	ImGui::Checkbox("Fauna", &gui.display_fauna);
 	ImGui::Checkbox("Foam", &gui.display_foam);
 	ImGui::Checkbox("Lighthouse beam", &gui.display_lighthouse_beam);
-	ImGui::SliderFloat("Day-night speed", &day_night_speed, 0.001f, 0.08f);
+	ImGui::SliderFloat("Day-night speed", &day_night_speed, 0.0f, 0.08f);
 	ImGui::SliderFloat("Fog day density", &fog_day_density, 0.0f, 0.01f);
 	ImGui::SliderFloat("Fog night density", &fog_night_density, 0.002f, 0.05f);
 	ImGui::SliderFloat("Beam rotation", &lighthouse_rotation_speed, 0.1f, 4.0f);
@@ -2524,7 +2524,7 @@ void scene_structure::display_gui()
 	ImGui::Text("Foam particles: %d", static_cast<int>(foams.size()));
 
 	ImGui::Separator();
-	
+
 	ImGui::Text("Character mode");
 	ImGui::BulletText("C: Toggle third-person mode");
 	ImGui::BulletText("ESC: Exit third-person mode");
