@@ -93,6 +93,12 @@ struct character_controller {
 	float heading = 0.0f;
 	float speed = 4.0f;
 	float angular_speed = 2.2f;
+	float camera_pitch = 0.45f;
+	float camera_distance = 5.0f;
+	float camera_pitch_sensitivity = 0.8f;
+	float camera_yaw_sensitivity = 0.8f;
+	float camera_pitch_min = -0.40f;
+	float camera_pitch_max = 0.5f;
 	bool enabled = false;
 };
 

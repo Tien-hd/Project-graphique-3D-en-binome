@@ -1935,9 +1935,9 @@ void scene_structure::update_third_person_camera()
 
 	vec3 const target = character.position + vec3{0.0f, 0.0f, 1.1f};
 	vec3 const forward = {std::cos(character.heading), std::sin(character.heading), 0.0f};
-	float const follow_distance = 5.0f;
-	float const follow_height = 2.5f;
-	vec3 const camera_position = target - follow_distance * forward + vec3{0.0f, 0.0f, follow_height};
+	float const horizontal_distance = character.camera_distance * std::cos(character.camera_pitch);
+	float const vertical_distance = character.camera_distance * std::sin(character.camera_pitch);
+	vec3 const camera_position = target - horizontal_distance * forward + vec3{0.0f, 0.0f, vertical_distance};
 
 	camera_control.look_at(camera_position, target, {0.0f, 0.0f, 1.0f});
 }
@@ -1945,48 +1945,54 @@ void scene_structure::update_third_person_camera()
 void scene_structure::display_character()
 {
 	vec3 const p = character.position;
+	float const s = 0.5f;
 	rotation_transform const R = rotation_transform::from_axis_angle({0.0f, 0.0f, 1.0f}, character.heading);
-	rotation_transform const R_limb = R * rotation_transform::from_axis_angle({1.0f, 0.0f, 0.0f}, 0.18f);
+	rotation_transform const R_left_arm =
+		R * rotation_transform::from_axis_angle({1,0,0}, 0.18f);
 
-	character_body.model.translation = p + vec3{0.0f, 0.0f, 0.32f};
+	rotation_transform const R_right_arm =
+		R * rotation_transform::from_axis_angle({1,0,0}, -0.18f);
+
+	character_body.model.translation = p + s * vec3{0.0f, 0.0f, 0.32f};
 	character_body.model.rotation = R;
-	character_body.model.scaling = 1.0f;
+	character_body.model.scaling = s;
 	character_body.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
 	draw(character_body, environment);
 
-	character_head.model.translation = p + vec3{0.0f, 0.0f, 1.14f};
+	character_head.model.translation = p + s * vec3{0.0f, 0.0f, 1.14f};
 	character_head.model.rotation = R;
-	character_head.model.scaling = 1.0f;
+	character_head.model.scaling = s;
 	character_head.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
 	draw(character_head, environment);
 
-	character_left_arm.model.translation = p + R * vec3{0.0f, 0.30f, 0.62f};
-	character_left_arm.model.rotation = R_limb;
-	character_left_arm.model.scaling = 1.0f;
+	character_left_arm.model.translation = p + s * R * vec3{0.0f, 0.30f, 0.62f};
+	character_left_arm.model.rotation = R_left_arm;
+	character_left_arm.model.scaling = s;
 	character_left_arm.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
 	draw(character_left_arm, environment);
 
-	character_right_arm.model.translation = p + R * vec3{0.0f, -0.30f, 0.62f};
-	character_right_arm.model.rotation = R_limb;
-	character_right_arm.model.scaling = 1.0f;
+	character_right_arm.model.translation = p + s * R * vec3{0.0f, -0.30f, 0.62f};
+	character_right_arm.model.rotation = R_right_arm;
+	character_right_arm.model.scaling = s;
 	character_right_arm.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
 	draw(character_right_arm, environment);
 
-	character_left_leg.model.translation = p + R * vec3{0.0f, 0.11f, 0.04f};
+	character_left_leg.model.translation = p + s * R * vec3{0.0f, 0.11f, 0.04f};
 	character_left_leg.model.rotation = R;
-	character_left_leg.model.scaling = 1.0f;
+	character_left_leg.model.scaling = s;
 	character_left_leg.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
 	draw(character_left_leg, environment);
 
-	character_right_leg.model.translation = p + R * vec3{0.0f, -0.11f, 0.04f};
+	character_right_leg.model.translation = p + s * R * vec3{0.0f, -0.11f, 0.04f};
 	character_right_leg.model.rotation = R;
-	character_right_leg.model.scaling = 1.0f;
+	character_right_leg.model.scaling = s;
 	character_right_leg.model.scaling_xyz = {1.0f, 1.0f, 1.0f};
 	draw(character_right_leg, environment);
 }
 
 void scene_structure::reset_camera_overview()
 {
+	character.camera_pitch = 0.45f;
 	camera_control.look_at({-34.0f, -29.0f, 16.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 1.0f});
 }
 
@@ -2264,8 +2270,16 @@ void scene_structure::display_gui()
 
 void scene_structure::mouse_move_event()
 {
-	if (character.enabled)
+	if (character.enabled) {
+		if (inputs.mouse.on_gui)
+			return;
+
+		vec2 const dp = inputs.mouse.position.current - inputs.mouse.position.previous;
+		character.camera_pitch += character.camera_pitch_sensitivity * dp.y;
+		character.camera_pitch = std::clamp(character.camera_pitch, character.camera_pitch_min, character.camera_pitch_max);
+		character.heading -= character.camera_yaw_sensitivity * dp.x;
 		return;
+	}
 
 	if (!inputs.keyboard.shift)
 		camera_control.action_mouse_move();
